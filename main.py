@@ -1,12 +1,13 @@
 import os
 import discord
 from discord.ext import commands
-from discord import app_commands # Import app_commands
+from discord import app_commands
+import aiohttp # Import aiohttp for making HTTP requests
+import urllib.parse # For URL encoding parameters
 
 # Define intents
 intents = discord.Intents.default()
 intents.members = True
-intents.message_content = True # Still needed for message-based commands if you keep them
 intents.presences = True
 
 # Initialize the bot
@@ -17,33 +18,67 @@ async def on_ready():
     print(f'Logged in as {bot.user.name} ({bot.user.id})')
     print('------')
     try:
-        # This will sync your commands globally. For faster testing,
+        # Sync your commands globally. For faster testing,
         # you can sync to a specific guild using bot.tree.sync(guild=discord.Object(id=YOUR_GUILD_ID))
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} slash commands.")
     except Exception as e:
         print(f"Failed to sync commands: {e}")
 
-# --- Legacy Message-Based Commands (Optional, can be removed if only using slash commands) ---
-@bot.command(name='hello')
-async def hello(ctx):
-    """A simple hello command."""
-    await ctx.send(f'Hello, {ctx.author.display_name}!')
-
-@bot.command(name='ping')
-async def ping(ctx):
-    """Checks the bot's latency."""
-    await ctx.send(f'Pong! {round(bot.latency * 1000)}ms')
-# -----------------------------------------------------------------------------------------
-
 # --- Slash Command ---
-@bot.tree.command(name="serene", description="Sends a serene message back with your text.")
-@app_commands.describe(text_input="The text you want to send with serene.") # Describe the parameter
+@bot.tree.command(name="serene", description="Interact with the Serene bot backend.")
+@app_commands.describe(text_input="Your message or question for Serene.")
 async def serene_command(interaction: discord.Interaction, text_input: str):
     """
-    Shows your text after the /serene command.
+    Sends text and username to serene_bot.php and returns the response.
     """
-    await interaction.response.send_message(f"You typed: {text_input}")
+    await interaction.response.defer() # Acknowledge the command immediately as the PHP call might take a moment
+
+    php_backend_url = "https://serenekeks.com/serene_bot.php"
+    player_name = interaction.user.display_name # Get the Discord user's display name
+
+    # Determine which parameter to use based on the input text
+    # This logic needs to align with your PHP script's 'start', 'question', 'hail' parameters
+    # For now, let's assume 'question' is a good default for general text input.
+    # You might want to implement more sophisticated logic here based on your PHP's function calls.
+
+    # Example: If the input starts with "hello" or "hi", use 'hail'.
+    # Otherwise, use 'question'. You can expand this logic.
+    lower_text_input = text_input.lower()
+    if lower_text_input.startswith(("hello", "hi", "hail")):
+        param_name = "hail"
+    elif lower_text_input.startswith(("start", "begin")): # Assuming 'start' is for initial greetings
+        param_name = "start"
+    else:
+        param_name = "question" # Default to 'question' for general inquiries
+
+    # Construct the URL with parameters
+    # Using urllib.parse.quote_plus for robust URL encoding of spaces and special characters
+    params = {
+        param_name: text_input,
+        "player": player_name
+    }
+    encoded_params = urllib.parse.urlencode(params, quote_via=urllib.parse.quote_plus)
+    full_url = f"{php_backend_url}?{encoded_params}"
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(full_url) as response:
+                if response.status == 200:
+                    php_response_text = await response.text()
+                    await interaction.followup.send(php_response_text)
+                else:
+                    await interaction.followup.send(
+                        f"Serene backend returned an error: HTTP Status {response.status}"
+                    )
+    except aiohttp.ClientError as e:
+        await interaction.followup.send(
+            f"Could not connect to the Serene backend. Error: {e}"
+        )
+    except Exception as e:
+        await interaction.followup.send(
+            f"An unexpected error occurred: {e}"
+        )
 
 # Load environment variables for the token
 BOT_TOKEN = os.getenv('BOT_TOKEN')
