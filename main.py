@@ -4,6 +4,9 @@ from discord.ext import commands
 from discord import app_commands
 import aiohttp
 import urllib.parse
+import nltk
+nltk.download('wordnet')        # WordNet itself
+nltk.download('omw-1.4')        # Optional: WordNet multilingual support
 
 # Define intents
 intents = discord.Intents.default()
