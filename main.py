@@ -26,14 +26,15 @@ active_jeopardy_games = {} # Re-introducing this for the new Jeopardy game
 
 class CategoryValueSelect(discord.ui.Select):
     """A dropdown (select) for choosing a question's value within a specific category."""
-    def __init__(self, category_name: str, options: list[discord.SelectOption], placeholder: str, row: int): # Added row parameter
+    def __init__(self, category_name: str, options: list[discord.SelectOption], placeholder: str, row: int, disabled: bool = False): # Added disabled parameter
         super().__init__(
             placeholder=placeholder,
             min_values=1,
             max_values=1,
             options=options,
             custom_id=f"jeopardy_select_{category_name.replace(' ', '_').lower()}_{row}", # Add row to custom_id for uniqueness
-            row=row # Use the passed row
+            row=row,
+            disabled=disabled # Use the passed disabled state
         )
         self.category_name = category_name # Store category name for later use
 
@@ -47,7 +48,7 @@ class CategoryValueSelect(discord.ui.Select):
             await interaction.response.send_message("You are not the active player for this Jeopardy game.", ephemeral=True)
             return
         
-        if game.current_question: # If a question is already being answered
+        if game.current_question: # If a question is already being answered, prevent new selections
             await interaction.response.send_message("A question is currently active. Please wait for it to conclude.", ephemeral=True)
             return
 
@@ -55,9 +56,6 @@ class CategoryValueSelect(discord.ui.Select):
         selected_value_str = self.values[0] # The selected value is always a string from SelectOption
         selected_value = int(selected_value_str) # Convert back to int
 
-        view._selected_category = self.category_name
-        view._selected_value = selected_value
-        
         # Find the actual question data
         question_data = None
         categories_in_current_phase = game.normal_jeopardy_data.get("normal_jeopardy", [])
@@ -76,19 +74,46 @@ class CategoryValueSelect(discord.ui.Select):
             question_data["guessed"] = True
             game.current_question = question_data # Set current question in game state
 
-            # Clear the view's internal selection state
+            # Clear the view's internal selection state (not strictly necessary but good practice)
             view._selected_category = None
             view._selected_value = None
 
-            # Rebuild and update the view to reflect the guessed question
-            view.add_board_components() 
-            await interaction.response.edit_message(view=view) # Edit the original message to update dropdowns
+            # Rebuild and update the view to reflect the guessed question and disable dropdowns
+            view.add_board_components() # This rebuilds the view with disabled dropdowns
+            await interaction.response.edit_message(view=view) # Edit the original message to update dropdowns and disable them
             
-            # Send the question publicly in the specified format
+            # Send the question and answer publicly in the specified format for debugging
             await interaction.followup.send(
-                f"*For ${question_data['value']}:*\n**{question_data['question']}**"
+                f"*For ${question_data['value']}:*\n**Question:** {question_data['question']}\n**Answer:** ||{question_data['answer']}||"
             )
-            game.current_question = None # Clear current question after displaying it (for now)
+
+            # Define a check for the user's response
+            def check_answer(m: discord.Message):
+                # Check if message is in the same channel, from the same user, and starts with required phrase
+                return (m.channel.id == interaction.channel.id and
+                        m.author.id == interaction.user.id and
+                        m.content.lower().startswith(("what is", "who is", "what are", "who are")))
+
+            try:
+                # Wait for the user's response for a limited time (e.g., 30 seconds)
+                user_answer_msg = await bot.wait_for('message', check=check_answer, timeout=30.0)
+                await interaction.followup.send(f"Received your answer: '{user_answer_msg.content}'. (Answer processing not yet implemented)")
+                # TODO: Implement actual answer checking logic and score update here
+                # For now, we just acknowledge and re-enable dropdowns
+
+            except asyncio.TimeoutError:
+                await interaction.followup.send(f"Time's up! You didn't answer in time for '${question_data['value']}' question. The correct answer was: ||{question_data['answer']}||")
+            except Exception as e:
+                print(f"Error waiting for answer: {e}")
+                await interaction.followup.send("An error occurred while waiting for your answer.")
+            finally:
+                game.current_question = None # Clear current question state
+                # Re-enable dropdowns and update the message
+                view.add_board_components() # Rebuilds the view with enabled dropdowns (if questions remain)
+                if game.board_message: # Ensure board_message exists before editing
+                    await game.board_message.edit(view=view)
+                else:
+                    print("Warning: game.board_message was not found, could not re-enable view.")
 
         else:
             # If for some reason the question is not found or already guessed (race condition)
@@ -97,8 +122,6 @@ class CategoryValueSelect(discord.ui.Select):
                 ephemeral=True
             )
 
-
-# Removed PickQuestionButton class as requested.
 
 class JeopardyGameView(discord.ui.View):
     """The Discord UI View that holds the interactive Jeopardy board dropdowns."""
@@ -112,10 +135,14 @@ class JeopardyGameView(discord.ui.View):
         """
         Dynamically adds dropdowns (selects) for categories to the view.
         Each dropdown is placed on its own row, up to a maximum of 5 rows (0-4).
+        Dropdowns are disabled if a question is currently active.
         """
         self.clear_items()  # Clear existing items before rebuilding the board
 
         categories_to_process = self.game.normal_jeopardy_data.get("normal_jeopardy", [])
+
+        # Determine if dropdowns should be disabled (i.e., if a question is currently active)
+        disable_dropdowns = bool(self.game.current_question)
 
         # Iterate through categories and assign each to a new row, limiting to 5 dropdowns total
         for i, category_data in enumerate(categories_to_process):
@@ -130,7 +157,13 @@ class JeopardyGameView(discord.ui.View):
 
             if options: # Only add a dropdown if there are available questions in the category
                 # Place each category's dropdown on its own row (i.e., row=0, row=1, row=2, etc.)
-                self.add_item(CategoryValueSelect(category_name, options, f"Pick for {category_name}", row=i))
+                self.add_item(CategoryValueSelect(
+                    category_name,
+                    options,
+                    f"Pick for {category_name}",
+                    row=i,
+                    disabled=disable_dropdowns # Pass the disabled state
+                ))
 
     async def on_timeout(self):
         """Called when the view times out due to inactivity."""
