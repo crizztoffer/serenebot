@@ -86,45 +86,91 @@ class CategoryValueSelect(discord.ui.Select):
                 view=None # Remove the view to hide dropdowns
             )
             
-            # Send the question publicly (without the answer for regular play)
+            # --- Determine the correct prefix using Gemini ---
+            determined_prefix = "What is" # Default fallback
+            api_key = os.getenv('GEMINI_API_KEY')
+            if api_key:
+                try:
+                    # Prompt Gemini to determine the single most appropriate prefix
+                    gemini_prompt = f"Given the answer '{question_data['answer']}', what is the single most grammatically appropriate prefix (e.g., 'What is', 'Who is', 'What are', 'Who are', 'What was', 'Who was', 'What were', 'Who were') that would precede it in a Jeopardy-style question? Provide only the prefix string, exactly as it should be used (e.g., 'Who is', 'What were')."
+                    chat_history = [{"role": "user", "parts": [{"text": gemini_prompt}]}]
+                    payload = {"contents": chat_history}
+                    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(api_url, headers={'Content-Type': 'application/json'}, json=payload) as response:
+                            if response.status == 200:
+                                gemini_result = await response.json()
+                                if gemini_result.get("candidates") and len(gemini_result["candidates"]) > 0 and \
+                                   gemini_result["candidates"][0].get("content") and \
+                                   gemini_result["candidates"][0]["content"].get("parts") and \
+                                   len(gemini_result["candidates"][0]["content"]["parts"]) > 0:
+                                    
+                                    generated_text = gemini_result["candidates"][0]["content"]["parts"][0]["text"].strip()
+                                    # Basic validation to ensure it's one of the expected prefixes
+                                    valid_prefixes = ("what is", "who is", "what are", "who are", "what was", "who was", "what were", "who were")
+                                    if generated_text.lower() in valid_prefixes:
+                                        determined_prefix = generated_text
+                                    else:
+                                        print(f"Gemini returned unexpected prefix: '{generated_text}'. Using default.")
+                                else:
+                                    print("Gemini response structure unexpected for prefix determination. Using default.")
+                            else:
+                                print(f"Gemini API call failed for prefix determination with status {response.status}. Using default.")
+                except Exception as e:
+                    print(f"Error calling Gemini API for prefix determination: {e}. Using default.")
+            else:
+                print("GEMINI_API_KEY not set. Cannot determine dynamic prefixes. Using default.")
+
+            # Send the question publicly (without the prefix hint)
             await interaction.followup.send(
                 f"*For ${question_data['value']}:*\n**{question_data['question']}**"
             )
 
-            # Define a check for the user's response
+            # Define a check for the user's response, now strictly using the determined_prefix
             def check_answer(m: discord.Message):
-                # 2) Check if message is in the same channel, from the same user, and starts with required phrase
-                required_prefixes = ("what is", "who is", "what are", "who are", "who were", "what were")
+                # Check if message is in the same channel, from the same user, and starts with the determined prefix (case-insensitive)
                 return (m.channel.id == interaction.channel.id and
                         m.author.id == interaction.user.id and
-                        m.content.lower().startswith(required_prefixes))
+                        m.content.lower().startswith(determined_prefix.lower()))
 
             try:
                 # Wait for the user's response for a limited time (e.g., 30 seconds)
                 user_answer_msg = await bot.wait_for('message', check=check_answer, timeout=30.0)
                 user_raw_answer = user_answer_msg.content.lower()
 
-                # Strip the prefixes from the user's answer for comparison
-                prefixes_to_strip = ("what is", "who is", "what are", "who are", "who were", "what were")
-                processed_user_answer = user_raw_answer
-                for prefix in prefixes_to_strip:
-                    if user_raw_answer.startswith(prefix):
-                        processed_user_answer = user_raw_answer[len(prefix):].strip()
-                        break
+                # Strip the determined prefix from the user's answer for comparison
+                processed_user_answer = user_raw_answer[len(determined_prefix.lower()):].strip()
                 
                 correct_answer_lower = question_data['answer'].lower()
+                correct_answer_words = correct_answer_lower.split()
+
+                is_correct = False
+                # First, check for exact match (after stripping prefixes from user's answer)
+                if processed_user_answer == correct_answer_lower:
+                    is_correct = True
+                # If not an exact match, and the correct answer has multiple words (likely a name)
+                elif len(correct_answer_words) > 1:
+                    # Check if any word from the correct answer is present in the user's processed answer
+                    # This handles cases like "George Washington" where "washington" might be enough
+                    if any(word in processed_user_answer for word in correct_answer_words):
+                        is_correct = True
+                # Special case for single-word answers: allow partial match if it's the full word
+                elif len(correct_answer_words) == 1 and processed_user_answer == correct_answer_lower: # Ensure exact match for single word
+                    is_correct = True
+
 
                 # Compare the processed user answer with the correct answer
-                if processed_user_answer == correct_answer_lower:
+                if is_correct:
                     game.score += question_data['value']
                     await interaction.followup.send(
                         f"✅ Correct, {game.player.display_name}! Your score is now **${game.score}**."
                     )
                 else:
-                    game.score -= question_data['value']
                     await interaction.followup.send(
                         f"❌ Incorrect, {game.player.display_name}! The correct answer was: ||{question_data['answer']}||. Your score is now **${game.score}**."
                     )
+                    game.score -= question_data['value'] # Deduct score for incorrect answer
 
             except asyncio.TimeoutError:
                 await interaction.followup.send(
@@ -324,7 +370,6 @@ class TicTacToeButton(discord.ui.Button):
             next_player_obj = view.players[view.current_player]
 
             # Update message for next turn
-            # Corrected line: changed self.current_player back to view.current_player
             await interaction.edit_original_response(
                 content=f"It's **{next_player_obj.display_name}**'s turn ({view.current_player})",
                 embed=view._start_game_message(),
@@ -332,7 +377,7 @@ class TicTacToeButton(discord.ui.Button):
             )
 
             # If it's the bot's turn, make its move
-            if view.players[view.current_player].id == bot.user.id: # Fixed: view.current_player -> self.current_player
+            if view.players[view.current_player].id == bot.user.id:
                 await asyncio.sleep(1) # Small delay for natural feel
                 await view._bot_make_move(interaction)
 
@@ -489,7 +534,7 @@ class TicTacToeView(discord.ui.View):
             if self._check_winner():
                 winner = self.players[self.current_player].display_name
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner} wins!** �",
+                    content=f"🎉 **{winner} wins!** 🎉",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
