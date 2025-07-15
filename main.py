@@ -39,7 +39,7 @@ except LookupError:
 
 
 # Define intents
-intents = discord.Intents.default()
+intents = discord.I`ntents`.default()
 intents.members = True
 intents.presences = True
 
@@ -53,39 +53,29 @@ def get_simple_nouns(n=3):
     Filters for single, lowercase, alphabetic words, and attempts to avoid overly generic terms.
     """
     nouns = set()
-    # Increased pool size to get more variety
+    # Reduced pool size to favor more common words found earlier in WordNet's iteration
     for synset in wn.all_synsets('n'):
         name = synset.lemmas()[0].name().lower() # Ensure lowercase
-        # Filter: only alphabetic lowercase simple words, and avoid very common/generic ones if possible
-        if name.isalpha() and len(name) > 2 and '_' not in name and '-' not in name: # Avoid multi-word lemmas
+        # Filter: only alphabetic lowercase simple words, and avoid multi-word lemmas
+        if name.isalpha() and len(name) > 1 and '_' not in name and '-' not in name: # Reduced min length to 1
             nouns.add(name)
-        if len(nouns) >= 3000: # Increased limit for more variety
+        if len(nouns) >= 1000: # Reduced limit to 1000 for more common words
             break
     
-    # Attempt to get more imaginative nouns by filtering or re-sampling if necessary
-    # Blacklist of very common/less descriptive nouns
+    # Reduced blacklist to allow more common nouns
     common_boring_nouns = {
         "thing", "person", "place", "time", "way", "man", "woman", "boy", "girl", "day", "night",
         "world", "life", "hand", "part", "child", "eye", "head", "house", "car", "door", "room",
-        "water", "air", "food", "money", "work", "game", "story", "fact", "idea", "group", "system",
-        "number", "point", "problem", "question", "side", "state", "area", "city", "country", "government",
-        "sound", "light", "color", "shape", "size", "kind", "form", "value", "word", "name", "line",
-        "art", "music", "book", "film", "show", "play", "power", "force", "energy", "matter", "space",
-        "mind", "spirit", "soul", "body", "heart", "blood", "bone", "skin", "hair", "face", "mouth",
-        "nose", "ear", "foot", "arm", "leg", "finger", "toe", "back", "front", "top", "bottom", "side",
-        "end", "beginning", "middle", "moment", "hour", "week", "month", "year", "century", "age",
-        "morning", "afternoon", "evening", "night", "past", "present", "future", "time", "space", "form"
+        "water", "air", "food", "money", "work", "game", "story", "fact", "idea"
     }
     
     filtered_nouns = [noun for noun in list(nouns) if noun not in common_boring_nouns]
     
     # Ensure we can pick 'n' distinct nouns. If not enough after filtering, fall back to less strict selection.
     if len(filtered_nouns) < n:
-        # If filtering was too aggressive, take from the original set, excluding already chosen
         remaining_nouns = list(nouns - set(filtered_nouns))
         final_nouns = random.sample(filtered_nouns, min(n, len(filtered_nouns)))
         while len(final_nouns) < n and remaining_nouns:
-            # Pop from remaining to ensure distinctness and avoid infinite loop if pool is small
             final_nouns.append(remaining_nouns.pop(random.randrange(len(remaining_nouns))))
     else:
         final_nouns = random.sample(filtered_nouns, n)
@@ -99,23 +89,20 @@ def get_simple_verbs(n=2):
     Filters for single, lowercase, alphabetic words, and attempts to avoid overly generic terms.
     """
     verbs = set()
-    # Increased pool size to get more variety
+    # Reduced pool size to favor more common verbs found earlier in WordNet's iteration
     for synset in wn.all_synsets('v'):
         name = synset.lemmas()[0].name().lower() # Ensure lowercase
-        # Filter: only alphabetic lowercase simple words, and avoid very common/generic ones
-        if name.isalpha() and len(name) > 1 and '_' not in name and '-' not in name: # Avoid multi-word lemmas
+        # Filter: only alphabetic lowercase simple words, and avoid multi-word lemmas
+        if name.isalpha() and len(name) > 1 and '_' not in name and '-' not in name: # Kept min length > 1 for verbs
             verbs.add(name)
-        if len(verbs) >= 3000: # Increased limit for more variety
+        if len(verbs) >= 1000: # Reduced limit to 1000 for more common verbs
             break
             
-    # Blacklist of very common/less descriptive verbs
+    # Reduced blacklist to allow more common verbs
     common_boring_verbs = {
         "be", "have", "do", "say", "get", "make", "go", "know", "take", "see", "come",
         "think", "look", "want", "give", "use", "find", "tell", "ask", "seem", "feel",
-        "show", "try", "call", "mean", "become", "leave", "put", "hold", "write", "stand",
-        "sit", "run", "walk", "talk", "start", "end", "begin", "help", "play", "move", "live",
-        "turn", "work", "change", "follow", "stop", "create", "read", "add", "grow", "open",
-        "build", "send", "expect", "allow", "force", "offer", "learn", "change", "lead", "understand"
+        "show", "try", "call"
     }
 
     filtered_verbs = [verb for verb in list(verbs) if verb not in common_boring_verbs]
@@ -124,7 +111,6 @@ def get_simple_verbs(n=2):
         remaining_verbs = list(verbs - set(filtered_verbs))
         final_verbs = random.sample(filtered_verbs, min(n, len(filtered_verbs)))
         while len(final_verbs) < n and remaining_verbs:
-            # Pop from remaining to ensure distinctness and avoid infinite loop if pool is small
             final_verbs.append(remaining_verbs.pop(random.randrange(len(remaining_verbs))))
     else:
         final_verbs = random.sample(filtered_verbs, n)
