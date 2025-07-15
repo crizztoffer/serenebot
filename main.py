@@ -22,6 +22,29 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 active_tictactoe_games = {}
 active_jeopardy_games = {} # Re-introducing this for the new Jeopardy game
 
+# --- Helper for fuzzy matching ---
+def calculate_char_similarity(word1: str, word2: str) -> float:
+    """
+    Calculates a percentage of character similarity between two words.
+    Compares characters at corresponding positions and divides by the length of the longer word.
+    """
+    word1_lower = word1.lower()
+    word2_lower = word2.lower()
+    
+    min_len = min(len(word1_lower), len(word2_lower))
+    max_len = max(len(word1_lower), len(word2_lower))
+    
+    if max_len == 0:
+        return 100.0 if min_len == 0 else 0.0 # Both empty or one empty
+    
+    matching_chars = 0
+    for i in range(min_len):
+        if word1_lower[i] == word2_lower[i]:
+            matching_chars += 1
+            
+    return (matching_chars / max_len) * 100.0
+
+
 # --- New Jeopardy Game UI Components ---
 
 class CategoryValueSelect(discord.ui.Select):
@@ -149,38 +172,45 @@ class CategoryValueSelect(discord.ui.Select):
                 question_text_lower = question_data['question'].lower()
                 question_words_set = set(question_text_lower.split())
 
-                # Words from the correct answer that are also present in the question.
-                # These words are "contextual noise" and should not be sufficient on their own.
+                # Words from the correct answer that are considered "noisy" if they also appear in the question
                 noisy_correct_words = set(word for word in correct_answer_words if word in question_words_set)
 
                 is_correct = False
-                processed_user_answer_words = set(processed_user_answer.split())
-                correct_answer_words_set = set(correct_answer_lower.split())
+                processed_user_answer_words = processed_user_answer.split() # Keep as list for iteration
 
                 # 1. Exact match (after stripping prefix) is always correct.
                 if processed_user_answer == correct_answer_lower:
                     is_correct = True
-                # 2. If it's a multi-word answer (e.g., a name)
-                elif len(correct_answer_words_set) > 1:
-                    # Find common words between user's answer and correct answer
-                    matched_words = processed_user_answer_words.intersection(correct_answer_words_set)
+                else:
+                    # For multi-word answers or fuzzy matching
+                    found_significant_match = False
+                    for c_word in correct_answer_words:
+                        # Skip if the correct word is considered "noisy" and we haven't found a significant match yet
+                        # This ensures we prioritize non-noisy parts of the answer
+                        if c_word in noisy_correct_words and not found_significant_match:
+                            continue
 
-                    if not matched_words: # No common words at all
-                        is_correct = False
-                    elif len(matched_words) > 1: # If multiple words matched, it's correct (e.g., "Apollo 13")
-                        is_correct = True
-                    else: # Only one word matched
-                        single_matched_word = list(matched_words)[0]
-                        if single_matched_word in noisy_correct_words:
-                            # If the only matched word is a noisy one, it's incorrect.
-                            is_correct = False
-                        else:
-                            # If the only matched word is NOT noisy, it's correct. (e.g., "13" for "Apollo 13")
+                        for u_word in processed_user_answer_words:
+                            similarity = calculate_char_similarity(c_word, u_word)
+                            if similarity >= 70.0:
+                                # If it's a non-noisy word, or if we've already found a non-noisy match,
+                                # then this match contributes to correctness.
+                                if c_word not in noisy_correct_words or found_significant_match:
+                                    found_significant_match = True
+                                    break # Found a good match for this correct word, move to next correct word
+                        if found_significant_match:
+                            break # Found a significant match overall, no need to check further
+
+                    # If no significant match was found, but the user's answer is an exact single word match
+                    # for a non-noisy word from the correct answer, that's also correct.
+                    # This handles cases like "13" for "Apollo 13" if "13" is not in the question.
+                    if not found_significant_match and len(processed_user_answer_words) == 1:
+                        single_user_word = processed_user_answer_words[0]
+                        if single_user_word in correct_answer_words and single_user_word not in noisy_correct_words:
                             is_correct = True
-                # 3. If it's a single-word answer, it must be an exact match (after stripping prefix).
-                elif len(correct_answer_words_set) == 1:
-                    if processed_user_answer == correct_answer_lower:
+                    elif found_significant_match:
                         is_correct = True
+
 
                 # Compare the processed user answer with the correct answer
                 if is_correct:
@@ -377,7 +407,7 @@ class TicTacToeButton(discord.ui.Button):
         if view._check_winner():
             winner = view.players[view.current_player].display_name
             await interaction.edit_original_response(
-                content=f"🎉 **{winner} wins!** �",
+                content=f"🎉 **{winner} wins!** 🎉",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -594,7 +624,7 @@ class TicTacToeView(discord.ui.View):
             await self.message.edit(content="Game timed out due to inactivity.", view=None, embed=None)
         if self.message and self.message.channel.id in active_tictactoe_games:
             del active_tictactoe_games[self.message.channel.id]
-        print(f"Tic-Tac-Toe game in channel {self.message.channel.id} timed out.")
+        print(f"Tic-Tac-Toe game in channel {self.message.channel_id} timed out.")
 
 
 # --- Bot Events ---
