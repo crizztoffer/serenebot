@@ -158,7 +158,8 @@ class CategoryValueSelect(discord.ui.Select):
 class JeopardyGameView(discord.ui.View):
     """The Discord UI View that holds the interactive Jeopardy board dropdowns."""
     def __init__(self, game: 'NewJeopardyGame'):
-        super().__init__(timeout=300) # View times out after 5 minutes of inactivity
+        # Increased timeout to 15 minutes (900 seconds)
+        super().__init__(timeout=900)
         self.game = game # Reference to the NewJeopardyGame instance
         self._selected_category = None # Stores the category selected by the user
         self._selected_value = None # Stores the value selected by the user
