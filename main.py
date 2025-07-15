@@ -5,14 +5,8 @@ import json
 
 import discord
 from discord.ext import commands
-from discord import app_commands
+from discord import app_commands, ui
 import aiohttp
-# Removed nltk imports as Gemini API will be used for word generation
-# import nltk
-# from nltk.corpus import wordnet as wn
-
-# Removed NLTK_DATA_DIR setup as NLTK is no longer used
-
 
 # Define intents
 intents = discord.Intents.default()
@@ -22,8 +16,214 @@ intents.presences = True
 # Initialize the bot
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# Removed get_simple_nouns and get_simple_verbs as they are replaced by LLM calls
+# --- Game State Storage ---
+# Stores active Tic-Tac-Toe games. Key: channel_id, Value: TicTacToeView instance
+active_tictactoe_games = {}
 
+
+# --- Tic-Tac-Toe Game Classes ---
+
+class TicTacToeButton(discord.ui.Button):
+    """Represents a single square on the Tic-Tac-Toe board."""
+    def __init__(self, row: int, col: int, player_mark: str = " "):
+        super().__init__(style=discord.ButtonStyle.secondary, label=player_mark, row=row)
+        self.row = row
+        self.col = col
+        self.player_mark = player_mark
+
+    async def callback(self, interaction: discord.Interaction):
+        """Handle button click for a Tic-Tac-Toe square."""
+        view: TicTacToeView = self.view
+        
+        # Ensure it's the correct player's turn
+        if interaction.user.id != view.players[view.current_player].id:
+            await interaction.response.send_message("It's not your turn!", ephemeral=True)
+            return
+
+        # Ensure the spot is empty
+        if self.player_mark != " ":
+            await interaction.response.send_message("That spot is already taken!", ephemeral=True)
+            return
+
+        # Update the button and board
+        self.player_mark = view.current_player
+        self.label = self.player_mark
+        self.style = discord.ButtonStyle.primary if self.player_mark == "X" else discord.ButtonStyle.danger
+        self.disabled = True
+        view.board[self.row][self.col] = self.player_mark
+
+        # Check for win or draw
+        if view._check_winner():
+            winner = view.players[view.current_player].display_name
+            await interaction.response.edit_message(
+                content=f"🎉 **{winner} wins!** 🎉",
+                embed=view._start_game_message().to_dict(), # Update board in embed
+                view=view._end_game()
+            )
+            del active_tictactoe_games[interaction.channel_id] # End the game
+        elif view._check_draw():
+            await interaction.response.edit_message(
+                content="It's a **draw!** 🤝",
+                embed=view._start_game_message().to_dict(), # Update board in embed
+                view=view._end_game()
+            )
+            del active_tictactoe_games[interaction.channel_id] # End the game
+        else:
+            # Switch player and update message
+            view.current_player = "O" if view.current_player == "X" else "X"
+            next_player_obj = view.players[view.current_player]
+            await interaction.response.edit_message(
+                content=f"It's **{next_player_obj.display_name}**'s turn ({view.current_player})",
+                embed=view._start_game_message().to_dict(), # Update board in embed
+                view=view
+            )
+
+
+class TicTacToeView(discord.ui.View):
+    """Manages the Tic-Tac-Toe game board and logic."""
+    def __init__(self, player_x: discord.User, player_o: discord.User):
+        super().__init__(timeout=300) # Game times out after 5 minutes of inactivity
+        self.players = {"X": player_x, "O": player_o}
+        self.current_player = "X"
+        self.board = [[" ", " ", " "], [" ", " ", " "], [" ", " ", " "]]
+        self.message = None # To store the message containing the board
+
+        self._create_board()
+
+    def _create_board(self):
+        """Initializes the 3x3 grid of buttons."""
+        for row in range(3):
+            for col in range(3):
+                self.add_item(TicTacToeButton(row, col))
+
+    def _update_board_display(self):
+        """Updates the labels and styles of the buttons to reflect the current board state."""
+        for item in self.children:
+            if isinstance(item, TicTacToeButton):
+                mark = self.board[item.row][item.col]
+                item.label = mark
+                if mark == "X":
+                    item.style = discord.ButtonStyle.primary
+                elif mark == "O":
+                    item.style = discord.ButtonStyle.danger
+                else:
+                    item.style = discord.ButtonStyle.secondary
+                item.disabled = mark != " " # Disable if already marked
+
+    def _start_game_message(self) -> discord.Embed:
+        """Generates the embed for the game board."""
+        embed = discord.Embed(
+            title="Tic-Tac-Toe",
+            description=f"**{self.players['X'].display_name}** (X) vs. **{self.players['O'].display_name}** (O)\n"
+                        f"Current Turn: **{self.players[self.current_player].display_name}** ({self.current_player})",
+            color=discord.Color.blue()
+        )
+        # Graphical board representation in the embed
+        board_str = ""
+        for r in range(3):
+            for c in range(3):
+                mark = self.board[r][c]
+                if mark == "X":
+                    board_str += "🇽 " # Regional indicator x
+                elif mark == "O":
+                    board_str += "🅾️ " # Regional indicator o
+                else:
+                    board_str += "⬜ " # White square
+            board_str += "\n"
+        embed.add_field(name="Board", value=board_str, inline=False)
+        return embed
+
+    def _check_winner(self) -> bool:
+        """Checks if the current player has won."""
+        board = self.board
+        p = self.current_player
+
+        # Check rows, columns, and diagonals
+        for i in range(3):
+            if all(board[i][j] == p for j in range(3)): return True # Row
+            if all(board[j][i] == p for j in range(3)): return True # Column
+        if all(board[i][i] == p for i in range(3)): return True # Diagonal \
+        if all(board[i][2-i] == p for i in range(3)): return True # Diagonal /
+        return False
+
+    def _check_draw(self) -> bool:
+        """Checks if the game is a draw."""
+        for row in self.board:
+            if " " in row:
+                return False # Still empty spots
+        return not self._check_winner() # Only a draw if no winner and board is full
+
+    def _end_game(self):
+        """Disables all buttons and removes the view from the active games."""
+        for item in self.children:
+            item.disabled = True
+        return self # Return self to update the view with disabled buttons
+
+    async def on_timeout(self):
+        """Called when the view times out due to inactivity."""
+        if self.message:
+            await self.message.edit(content="Game timed out due to inactivity.", view=None, embed=None)
+        if self.message and self.message.channel.id in active_tictactoe_games:
+            del active_tictactoe_games[self.message.channel.id]
+        print(f"Tic-Tac-Toe game in channel {self.message.channel.id} timed out.")
+
+
+# --- Game Selection UI ---
+
+class GameSelect(discord.ui.Select):
+    """Dropdown for selecting a game."""
+    def __init__(self):
+        options = [
+            discord.SelectOption(label="Tic-Tac-Toe", description="Play a classic game of Tic-Tac-Toe!", emoji="❌"),
+            # Add more game options here when you create them
+            # discord.SelectOption(label="Guess the Number", description="Try to guess my secret number!", emoji="🔢"),
+        ]
+        super().__init__(placeholder="Choose a game...", min_values=1, max_values=1, options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        """Handle game selection from the dropdown."""
+        selected_game = self.values[0]
+
+        if selected_game == "Tic-Tac-Toe":
+            # Check if a game is already active in this channel
+            if interaction.channel.id in active_tictactoe_games:
+                await interaction.response.send_message(
+                    "A Tic-Tac-Toe game is already active in this channel! Please finish it or wait.",
+                    ephemeral=True
+                )
+                return
+
+            # Players are the initiator and the bot for now, but you could add an @opponent parameter
+            player1 = interaction.user
+            player2 = bot.user # Bot plays as the second player
+
+            # Acknowledge the interaction privately first
+            await interaction.response.send_message(
+                f"Starting Tic-Tac-Toe for {player1.display_name} vs. {player2.display_name}...",
+                ephemeral=True
+            )
+
+            game_view = TicTacToeView(player_x=player1, player_o=player2)
+            
+            # Send the initial game board message
+            # This is the message that holds the interactive board
+            game_message = await interaction.channel.send(
+                content=f"It's **{player1.display_name}**'s turn (X)",
+                embed=game_view._start_game_message(),
+                view=game_view
+            )
+            game_view.message = game_message # Store the message for later updates
+            active_tictactoe_games[interaction.channel.id] = game_view # Store active game
+
+
+class SereneGameView(discord.ui.View):
+    """The initial view for the /serene_game command, containing the game selection dropdown."""
+    def __init__(self):
+        super().__init__(timeout=60) # View times out after 60 seconds if no selection
+        self.add_item(GameSelect())
+
+
+# --- Bot Events ---
 @bot.event
 async def on_ready():
     """
@@ -358,7 +558,7 @@ async def serene_story_command(interaction: discord.Interaction):
         
         # Load the API key from environment variables
         # This is essential for deployment on platforms like Railway
-        api_key = os.getenv('GEMINI_API_KEY') 
+        api_key = os.getenv('GEMINI_API_KEY')
         if api_key is None:
             print("Error: GEMINI_API_KEY environment variable not set. Gemini API calls will fail.")
             # Fallback to default words if API key is not set
@@ -426,6 +626,20 @@ async def serene_story_command(interaction: discord.Interaction):
         f"**Serene says:** {full_story}"
     )
     await interaction.followup.send(display_message)
+
+
+# --- NEW /serene_game command ---
+@bot.tree.command(name="serene_game", description="Start a fun game with Serene!")
+async def serene_game_command(interaction: discord.Interaction):
+    """
+    Handles the /serene_game slash command.
+    Presents a dropdown to select a game.
+    """
+    await interaction.response.send_message(
+        "Welcome to Serene's Games! Please choose a game:",
+        view=SereneGameView(),
+        ephemeral=True # Make this initial message only visible to the user
+    )
 
 
 # Load environment variables for the token
