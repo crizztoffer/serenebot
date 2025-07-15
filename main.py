@@ -83,12 +83,8 @@ class JeopardyGameView(discord.ui.View):
 
         categories_to_process = self.game.normal_jeopardy_data.get("normal_jeopardy", [])
 
-        dropdowns_added_to_view = 0 # Track actual dropdowns added
-
-        for category_data in categories_to_process:
-            if dropdowns_added_to_view >= 5: # Strictly limit to 5 dropdowns total for now
-                break
-
+        # Process only the first 5 categories to ensure we don't exceed Discord's 5-component-per-row limit
+        for category_data in categories_to_process[:5]: 
             category_name = category_data["category"]
             options = [
                 discord.SelectOption(label=f"${q['value']}", value=str(q['value']))
@@ -98,7 +94,6 @@ class JeopardyGameView(discord.ui.View):
             if options: # Only add a dropdown if there are available questions in the category
                 # Always add to row 0 for this debugging step
                 self.add_item(CategoryValueSelect(category_name, options, f"Pick for {category_name}", row=0))
-                dropdowns_added_to_view += 1
 
     async def on_timeout(self):
         """Called when the view times out due to inactivity."""
@@ -179,7 +174,7 @@ class NewJeopardyGame:
 
         categories_to_display = self.normal_jeopardy_data.get("normal_jeopardy", [])
         
-        # Add category fields for text-based overview
+        # Add category fields for text-based overview, limited to 5
         for i, category in enumerate(categories_to_display):
             if i >= 5: # Display up to 5 categories in the embed fields
                 break
@@ -442,7 +437,7 @@ class TicTacToeView(discord.ui.View):
                 self.current_player = "X"
                 next_player_obj = self.players[self.current_player]
                 await interaction.edit_original_response(
-                    content=f"It's **{next_player_obj.display_name}**'s turn ({self.current_player})",
+                    content=f"It's **{next_player_obj.display_name}**'s turn ({view.current_player})",
                     embed=self._start_game_message(),
                     view=self
                 )
