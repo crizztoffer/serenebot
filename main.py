@@ -58,14 +58,14 @@ class TicTacToeButton(discord.ui.Button):
             winner = view.players[view.current_player].display_name
             await interaction.response.edit_message(
                 content=f"🎉 **{winner} wins!** 🎉",
-                embed=view._start_game_message().to_dict(), # Update board in embed
+                embed=view._start_game_message(), # REMOVED .to_dict() here
                 view=view._end_game()
             )
             del active_tictactoe_games[interaction.channel_id] # End the game
         elif view._check_draw():
             await interaction.response.edit_message(
                 content="It's a **draw!** 🤝",
-                embed=view._start_game_message().to_dict(), # Update board in embed
+                embed=view._start_game_message(), # REMOVED .to_dict() here
                 view=view._end_game()
             )
             del active_tictactoe_games[interaction.channel_id] # End the game
@@ -75,7 +75,7 @@ class TicTacToeButton(discord.ui.Button):
             next_player_obj = view.players[view.current_player]
             await interaction.response.edit_message(
                 content=f"It's **{next_player_obj.display_name}**'s turn ({view.current_player})",
-                embed=view._start_game_message().to_dict(), # Update board in embed
+                embed=view._start_game_message(), # REMOVED .to_dict() here
                 view=view
             )
 
