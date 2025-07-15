@@ -109,9 +109,9 @@ class CategoryValueSelect(discord.ui.Select):
             view._selected_value = None
 
             # Edit the original board message to remove the dropdowns
+            # MODIFIED: Changed content to an empty string to remove the "Question selected!" message
             await game.board_message.edit(
-                content=f"**{game.player.display_name}** selected **{question_data['category']}** for **${question_data['value']}**.\n\n"
-                        "*Question selected! Please answer in the channel.*",
+                content="", # Removed the redundant message
                 view=None # Remove the view to hide dropdowns
             )
             
@@ -490,7 +490,7 @@ class TicTacToeButton(discord.ui.Button):
             del active_tictactoe_games[interaction.channel.id] # End the game
         elif view._check_draw():
             await interaction.edit_original_response(
-                content="It's a **draw!** 🤝",
+                content="It's a **draw!** �",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
