@@ -108,13 +108,21 @@ class CategoryValueSelect(discord.ui.Select):
             view._selected_category = None
             view._selected_value = None
 
-            # Edit the original board message to remove the dropdowns and update content
-            # MODIFIED: Changed content to a relevant message instead of an empty string
-            await game.board_message.edit(
-                content=f"**{game.player.display_name}**'s Score: **${game.score}**\n\n"
-                        "Question selected! Please answer in the channel.",
-                view=None # Remove the view to hide dropdowns
-            )
+            # MODIFIED: Delete the original board message that contained the dropdowns
+            if game.board_message:
+                try:
+                    await game.board_message.delete()
+                    game.board_message = None # Clear reference after deletion
+                except discord.errors.NotFound:
+                    print("WARNING: Original board message not found (already deleted or inaccessible).")
+                    game.board_message = None
+                except discord.errors.Forbidden:
+                    print("WARNING: Missing permissions to delete the original board message. Please ensure the bot has 'Manage Messages' permission.")
+                    # Keep game.board_message as is if deletion fails due to permissions,
+                    # as it might still be visible but uneditable.
+                except Exception as delete_e:
+                    print(f"WARNING: An unexpected error occurred during original board message deletion: {delete_e}")
+                    game.board_message = None # Assume it's gone or broken
             
             # --- Determine the correct prefix using Gemini ---
             determined_prefix = "What is" # Default fallback
@@ -484,7 +492,7 @@ class TicTacToeButton(discord.ui.Button):
         if view._check_winner():
             winner = view.players[view.current_player].display_name
             await interaction.edit_original_response(
-                content=f"🎉 **{winner} wins!** �",
+                content=f"🎉 **{winner} wins!** 🎉",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
