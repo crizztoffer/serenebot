@@ -164,9 +164,9 @@ async def serene_story_command(interaction: discord.Interaction):
     try:
         # Prompt for the Gemini API to get contextually appropriate words
         gemini_prompt = """
-        Generate 3 common, simple nouns and 2 common, simple verbs (in their past tense form) that could be used in a whimsical or adventurous story.
+        Generate 3 distinct, simple nouns and 2 distinct, simple verbs (in their simple past tense form) suitable for a whimsical, adventurous, or absurd story. The verbs should describe a direct action or reaction that can logically follow a preceding event, fitting naturally after a pronoun (e.g., 'they', 'he') and leading into a concluding phrase. Avoid verbs that imply a state of being or a continuous action.
         Provide the output as a JSON object with keys "nouns" (an array of 3 strings) and "verbs" (an array of 2 strings).
-        Example: {"nouns": ["dragon", "knight", "castle"], "verbs": ["fought", "explored"]}
+        Example: {"nouns": ["wizard", "goblin", "forest"], "verbs": ["laughed", "escaped"]}
         """
 
         chat_history = []
