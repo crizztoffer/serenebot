@@ -102,10 +102,10 @@ class JeopardyGameView(discord.ui.View):
         """Called when the view times out due to inactivity."""
         if self.game.board_message:
             # Edit the message to remove the interactive components and indicate timeout
-            await self.game.board_message.edit(content="Jeopardy game timed out due to inactivity.", view=None, embed=None)
+            await self.game.board_message.edit(content="Jeopardy game timed out due to inactivity.", view=None) # Removed embed
         if self.game.channel.id in active_jeopardy_games:
             # Clean up the game state
-            del active_jeopardy_games[self.game.channel_id]
+            del active_jeopardy_games[self.game.channel.id]
         print(f"Jeopardy game in channel {self.game.channel_id} timed out.")
 
 
@@ -166,35 +166,7 @@ class NewJeopardyGame:
             print(f"Error loading Jeopardy data: {e}")
             return False
 
-    def _get_board_display_embed(self) -> discord.Embed:
-        """Creates an embed to display the current Jeopardy board for Normal Jeopardy."""
-        embed = discord.Embed(
-            title="Jeopardy! Board",
-            description=f"Player: **{self.player.display_name}** | Score: **${self.score}**\n\n"
-                        "__**Normal Jeopardy**__\nSelect a category and value from the dropdowns below!", # Updated instruction
-            color=discord.Color.gold()
-        )
-
-        categories_to_display = self.normal_jeopardy_data.get("normal_jeopardy", [])
-        
-        # Add category fields for text-based overview, limited to 5
-        for i, category in enumerate(categories_to_display):
-            if i >= 5: # Display up to 5 categories in the embed fields
-                break
-            category_name = category["category"]
-            questions_display = []
-            for q in category["questions"]:
-                if q["guessed"]:
-                    questions_display.append(f"~~${q['value']}~~") # Strikethrough guessed questions
-                else:
-                    questions_display.append(f"${q['value']}")
-            embed.add_field(name=category_name, value="\n".join(questions_display), inline=True)
-        
-        # Add blank fields for spacing if the number of displayed categories is not a multiple of 3
-        while len(embed.fields) % 3 != 0:
-            embed.add_field(name="\u200b", value="\u200b", inline=True)
-
-        return embed
+    # Removed _get_board_display_embed method as it's no longer needed.
 
 
 # --- Tic-Tac-Toe Game Classes ---
@@ -423,7 +395,7 @@ class TicTacToeView(discord.ui.View):
             if self._check_winner():
                 winner = self.players[self.current_player].display_name
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner} wins!** 🎉",
+                    content=f"🎉 **{winner} wins!** �",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -898,8 +870,9 @@ async def serene_game_command(interaction: discord.Interaction, game_type: str):
             jeopardy_view.add_board_components() # This will add the dropdowns
             
             # Send the initial Jeopardy board with dropdowns
+            # Removed the embed from here as requested
             game_message = await interaction.channel.send(
-                embed=jeopardy_game._get_board_display_embed(),
+                content="Select a category and value from the dropdowns below!",
                 view=jeopardy_view
             )
             jeopardy_game.board_message = game_message # Store the message for updates
