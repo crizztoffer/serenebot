@@ -159,14 +159,14 @@ async def serene_story_command(interaction: discord.Interaction):
 
     # Initialize nouns and verbs with fallbacks in case of API failure
     nouns = ["creature", "forest", "adventure"]
-    verbs = ["run", "discover"]
+    verbs = ["ran", "discovered"] # Changed fallback verbs to past tense
 
     try:
         # Prompt for the Gemini API to get contextually appropriate words
         gemini_prompt = """
-        Generate 3 common, simple nouns and 2 common, simple verbs that could be used in a whimsical or adventurous story.
+        Generate 3 common, simple nouns and 2 common, simple verbs (in their past tense form) that could be used in a whimsical or adventurous story.
         Provide the output as a JSON object with keys "nouns" (an array of 3 strings) and "verbs" (an array of 2 strings).
-        Example: {"nouns": ["dragon", "knight", "castle"], "verbs": ["fight", "explore"]}
+        Example: {"nouns": ["dragon", "knight", "castle"], "verbs": ["fought", "explored"]}
         """
 
         chat_history = []
@@ -215,11 +215,11 @@ async def serene_story_command(interaction: discord.Interaction):
                         
                         # Extract nouns and verbs, using fallbacks if keys are missing
                         nouns = generated_words.get("nouns", ["thing", "place", "event"])
-                        verbs = generated_words.get("verbs", ["do", "happen"])
+                        verbs = generated_words.get("verbs", ["did", "happened"]) # Changed fallback verbs to past tense
                         
                         # Ensure we have exactly 3 nouns and 2 verbs, using fallbacks if needed
                         nouns = (nouns + ["thing", "place", "event"])[:3]
-                        verbs = (verbs + ["do", "happen"])[:2]
+                        verbs = (verbs + ["did", "happened"])[:2] # Changed fallback verbs to past tense
 
                     else:
                         print("Warning: Gemini response structure unexpected. Using fallback words.")
