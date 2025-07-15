@@ -39,7 +39,7 @@ except LookupError:
 
 
 # Define intents
-intents = discord.I`ntents`.default()
+intents = discord.Intents.default() # Corrected SyntaxError: Removed backticks around 'intents'
 intents.members = True
 intents.presences = True
 
