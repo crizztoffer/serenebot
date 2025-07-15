@@ -147,7 +147,9 @@ class CategoryValueSelect(discord.ui.Select):
 
             # --- Daily Double Wager Logic ---
             is_daily_double = question_data.get("double_jeopardy", False)
-            wager_amount = question_data['value'] # Default to question value
+            
+            # Initialize wager_amount_to_use to a safe default before the try-except block
+            wager_amount_to_use = question_data['value'] # Default to question value for non-DD
 
             if is_daily_double:
                 await interaction.followup.send(
@@ -172,12 +174,12 @@ class CategoryValueSelect(discord.ui.Select):
 
                     if wager_input <= 0:
                         await interaction.channel.send("Your wager must be a positive amount. Defaulting to $500.", delete_after=5)
-                        wager_amount = 500
+                        wager_amount_to_use = 500
                     elif wager_input > max_wager:
                         await interaction.channel.send(f"Your wager exceeds the maximum allowed (${max_wager}). Defaulting to max wager.", delete_after=5)
-                        wager_amount = max_wager
+                        wager_amount_to_use = max_wager
                     else:
-                        wager_amount = wager_input
+                        wager_amount_to_use = wager_input
                     
                     # Delete the wager prompt and the user's wager message for cleaner chat
                     await wager_prompt_message.delete()
@@ -185,16 +187,15 @@ class CategoryValueSelect(discord.ui.Select):
 
                 except asyncio.TimeoutError:
                     await interaction.channel.send("Time's up! You didn't enter a wager. Defaulting to $500.", delete_after=5)
-                    wager_amount = 500
+                    wager_amount_to_use = 500
                 except Exception as e:
                     print(f"Error getting wager: {e}")
                     await interaction.channel.send("An error occurred while getting your wager. Defaulting to $500.", delete_after=5)
-                    wager_amount = 500
+                    wager_amount_to_use = 500
                 
-                game.current_wager = wager_amount # Store wager in game state
+                game.current_wager = wager_amount_to_use # Store wager in game state
                 
                 # Now send the question for Daily Double, reflecting the wager
-                # Corrected: Display the wagered amount and "For the Daily Double"
                 await interaction.followup.send(
                     f"You wagered **${game.current_wager}**.\n*For the Daily Double:*\n**{question_data['question']}**"
                 )
@@ -254,17 +255,15 @@ class CategoryValueSelect(discord.ui.Select):
                                     found_significant_match = True
                                     break # Found a good match for this correct word, move to next correct word
                         if found_significant_match:
+                            is_correct = True # Set is_correct to True if a significant match is found
                             break # Found a significant match overall, no need to check further
 
-                    # If no significant match was found, but the user's answer is an exact single word match
-                    # for a non-noisy word from the correct answer, that's also correct.
-                    # This handles cases like "13" for "Apollo 13" if "13" is not in the question.
-                    if not found_significant_match and len(processed_user_answer_words) == 1:
+                    # If no significant match was found but it's a single word from the correct answer
+                    # that isn't noisy, it can still be correct.
+                    if not is_correct and len(processed_user_answer_words) == 1:
                         single_user_word = processed_user_answer_words[0]
                         if single_user_word in correct_answer_words and single_user_word not in noisy_correct_words:
                             is_correct = True
-                    elif found_significant_match:
-                        is_correct = True
 
 
                 # Compare the processed user answer with the correct answer
