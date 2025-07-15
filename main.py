@@ -288,7 +288,7 @@ async def serene_story_command(interaction: discord.Interaction):
         """
 
         chat_history = []
-        chat_history.push({"role": "user", "parts": [{"text": gemini_prompt}]})
+        chat_history.append({"role": "user", "parts": [{"text": gemini_prompt}]}) # Corrected .push() to .append()
         
         # Define the response schema for structured JSON output from Gemini
         payload = {
