@@ -137,39 +137,39 @@ class JeopardyGameView(discord.ui.View):
         self._selected_value = None # Stores the value selected by the user
 
     def add_buttons_from_board(self):
-    """Dynamically adds dropdowns (selects) for categories and the 'Pick Question' button to the view."""
-    self.clear_items()  # Clear existing items before rebuilding the board
+        """Dynamically adds dropdowns (selects) for categories and the 'Pick Question' button to the view."""
+        self.clear_items()  # Clear existing items before rebuilding the board
 
-    categories_to_process = []
-    if self.game.game_phase == "NORMAL_JEOPARDY_SELECTION":
-        categories_to_process = self.game.board_data.get("normal_jeopardy", [])
-    elif self.game.game_phase == "DOUBLE_JEOPARDY_SELECTION":
-        categories_to_process = self.game.board_data.get("double_jeopardy", [])
-    else:
-        return  # No interactive components during other phases
+        categories_to_process = []
+        if self.game.game_phase == "NORMAL_JEOPARDY_SELECTION":
+            categories_to_process = self.game.board_data.get("normal_jeopardy", [])
+        elif self.game.game_phase == "DOUBLE_JEOPARDY_SELECTION":
+            categories_to_process = self.game.board_data.get("double_jeopardy", [])
+        else:
+            return  # No interactive components during other phases
 
-    # Add category dropdowns, but limit to 5 dropdowns total
-    dropdown_added = False
-    dropdowns_added = 0
+        # Add category dropdowns, but limit to 5 dropdowns total
+        dropdown_added = False
+        dropdowns_added = 0
 
-    for category_data in categories_to_process:
-        if dropdowns_added >= 5:
-            break  # Do not exceed 5 dropdowns total
+        for category_data in categories_to_process:
+            if dropdowns_added >= 5:
+                break  # Do not exceed 5 dropdowns total
 
-        category_name = category_data["category"]
-        options = [
-            discord.SelectOption(label=f"${q['value']}", value=str(q['value']))
-            for q in category_data["questions"] if not q["guessed"]
-        ]
+            category_name = category_data["category"]
+            options = [
+                discord.SelectOption(label=f"${q['value']}", value=str(q['value']))
+                for q in category_data["questions"] if not q["guessed"]
+            ]
 
-        if options:
-            self.add_item(CategoryValueSelect(category_name, options, f"Pick for {category_name}"))
-            dropdown_added = True
-            dropdowns_added += 1
+            if options:
+                self.add_item(CategoryValueSelect(category_name, options, f"Pick for {category_name}"))
+                dropdown_added = True
+                dropdowns_added += 1
 
-    # Add the "Pick Question" button to row=1 if any dropdowns were added
-    if dropdown_added and (self.game.game_phase in ["NORMAL_JEOPARDY_SELECTION", "DOUBLE_JEOPARDY_SELECTION"]):
-        self.add_item(PickQuestionButton())
+        # Add the "Pick Question" button to row=1 if any dropdowns were added
+        if dropdown_added and (self.game.game_phase in ["NORMAL_JEOPARDY_SELECTION", "DOUBLE_JEOPARDY_SELECTION"]):
+            self.add_item(PickQuestionButton())
 
     async def on_timeout(self):
         """Called when the view times out due to inactivity."""
