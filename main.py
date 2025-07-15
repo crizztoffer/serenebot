@@ -1,122 +1,28 @@
 import os
 import random
 import urllib.parse
-import json # Still needed for handling JSON response from PHP
+import json
 
 import discord
 from discord.ext import commands
 from discord import app_commands
 import aiohttp
-# Re-added nltk imports for WordNet
-import nltk
-from nltk.corpus import wordnet as wn
+# Removed nltk imports as Gemini API will be used for word generation
+# import nltk
+# from nltk.corpus import wordnet as wn
 
-# Define a persistent directory for NLTK data
-# This is crucial for deployment environments like Railway
-NLTK_DATA_DIR = os.path.join(os.getcwd(), '.nltk_data')
-if not os.path.exists(NLTK_DATA_DIR):
-    os.makedirs(NLTK_DATA_DIR)
-nltk.data.path.append(NLTK_DATA_DIR)
-
-
-# Download WordNet if not already downloaded
-# This is crucial for nltk.corpus.wordnet to work.
-# Added checks to prevent repeated downloads on subsequent runs.
-try:
-    print(f"Checking for 'wordnet' in {NLTK_DATA_DIR}...")
-    # Removed 'path' argument as it's not supported in older NLTK versions and redundant with nltk.data.path.append
-    nltk.data.find('corpora/wordnet')
-except LookupError:
-    print("Downloading WordNet...")
-    nltk.download('wordnet', download_dir=NLTK_DATA_DIR)
-try:
-    print(f"Checking for 'omw-1.4' in {NLTK_DATA_DIR}...")
-    # Removed 'path' argument as it's not supported in older NLTK versions and redundant with nltk.data.path.append
-    nltk.data.find('corpora/omw-1.4')
-except LookupError:
-    print("Downloading OMW-1.4...")
-    nltk.download('omw-1.4', download_dir=NLTK_DATA_DIR)
+# Removed NLTK_DATA_DIR setup as NLTK is no longer used
 
 
 # Define intents
-intents = discord.Intents.default() # Corrected SyntaxError: Removed backticks around 'intents'
+intents = discord.Intents.default()
 intents.members = True
 intents.presences = True
 
 # Initialize the bot
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# Functions to get simple nouns and verbs using WordNet
-def get_simple_nouns(n=3):
-    """
-    Fetches a list of simple, common nouns using NLTK's WordNet.
-    Filters for single, lowercase, alphabetic words, and attempts to avoid overly generic terms.
-    """
-    nouns = set()
-    # Reduced pool size to favor more common words found earlier in WordNet's iteration
-    for synset in wn.all_synsets('n'):
-        name = synset.lemmas()[0].name().lower() # Ensure lowercase
-        # Filter: only alphabetic lowercase simple words, and avoid multi-word lemmas
-        if name.isalpha() and len(name) > 1 and '_' not in name and '-' not in name: # Reduced min length to 1
-            nouns.add(name)
-        if len(nouns) >= 1000: # Reduced limit to 1000 for more common words
-            break
-    
-    # Reduced blacklist to allow more common nouns
-    common_boring_nouns = {
-        "thing", "person", "place", "time", "way", "man", "woman", "boy", "girl", "day", "night",
-        "world", "life", "hand", "part", "child", "eye", "head", "house", "car", "door", "room",
-        "water", "air", "food", "money", "work", "game", "story", "fact", "idea"
-    }
-    
-    filtered_nouns = [noun for noun in list(nouns) if noun not in common_boring_nouns]
-    
-    # Ensure we can pick 'n' distinct nouns. If not enough after filtering, fall back to less strict selection.
-    if len(filtered_nouns) < n:
-        remaining_nouns = list(nouns - set(filtered_nouns))
-        final_nouns = random.sample(filtered_nouns, min(n, len(filtered_nouns)))
-        while len(final_nouns) < n and remaining_nouns:
-            final_nouns.append(remaining_nouns.pop(random.randrange(len(remaining_nouns))))
-    else:
-        final_nouns = random.sample(filtered_nouns, n)
-        
-    return final_nouns
-
-
-def get_simple_verbs(n=2):
-    """
-    Fetches a list of simple, common verbs (infinitive form) using NLTK's WordNet.
-    Filters for single, lowercase, alphabetic words, and attempts to avoid overly generic terms.
-    """
-    verbs = set()
-    # Reduced pool size to favor more common verbs found earlier in WordNet's iteration
-    for synset in wn.all_synsets('v'):
-        name = synset.lemmas()[0].name().lower() # Ensure lowercase
-        # Filter: only alphabetic lowercase simple words, and avoid multi-word lemmas
-        if name.isalpha() and len(name) > 1 and '_' not in name and '-' not in name: # Kept min length > 1 for verbs
-            verbs.add(name)
-        if len(verbs) >= 1000: # Reduced limit to 1000 for more common verbs
-            break
-            
-    # Reduced blacklist to allow more common verbs
-    common_boring_verbs = {
-        "be", "have", "do", "say", "get", "make", "go", "know", "take", "see", "come",
-        "think", "look", "want", "give", "use", "find", "tell", "ask", "seem", "feel",
-        "show", "try", "call"
-    }
-
-    filtered_verbs = [verb for verb in list(verbs) if verb not in common_boring_verbs]
-
-    if len(filtered_verbs) < n:
-        remaining_verbs = list(verbs - set(filtered_verbs))
-        final_verbs = random.sample(filtered_verbs, min(n, len(filtered_verbs)))
-        while len(final_verbs) < n and remaining_verbs:
-            final_verbs.append(remaining_verbs.pop(random.randrange(len(remaining_verbs))))
-    else:
-        final_verbs = random.sample(filtered_verbs, n)
-
-    return final_verbs
-
+# Removed get_simple_nouns and get_simple_verbs as they are replaced by LLM calls
 
 @bot.event
 async def on_ready():
@@ -178,6 +84,7 @@ async def serene_command(interaction: discord.Interaction, text_input: str):
                     )
                     await interaction.followup.send(display_message)
                 else:
+                    # Handle non-200 HTTP responses
                     await interaction.followup.send(
                         f"**{player_name} says:** {text_input}\n"
                         f"Serene backend returned an error: HTTP Status {response.status}"
@@ -286,20 +193,16 @@ def to_past_tense(verb):
         return verb + 'd'
     elif verb.endswith('y') and len(verb) > 1 and verb[-2] not in 'aeiou':
         return verb[:-1] + 'ied'
-    # Handle doubling consonant for single-syllable verbs ending in CVC (e.g., "stop" -> "stopped")
-    elif len(verb) > 1 and verb[-1] not in 'aeiouy' and verb[-2] in 'aeiou' and verb[-3] not in 'aeiouy':
-        # Simple check, might not cover all cases but catches many common ones
-        return verb + verb[-1] + 'ed'
-    else:
+    else: # Simplified to avoid complex CVC rule that caused "weatherred"
         return verb + 'ed'
 
 
-# --- NEW /serene_story command (MODIFIED to use NLTK and PHP JSON output) ---
-@bot.tree.command(name="serene_story", description="Generate a story with contextually appropriate nouns and verbs (free).")
+# --- NEW /serene_story command (MODIFIED to use Gemini API and PHP JSON output) ---
+@bot.tree.command(name="serene_story", description="Generate a story with contextually appropriate nouns and verbs.")
 async def serene_story_command(interaction: discord.Interaction):
     """
     Handles the /serene_story slash command.
-    Fetches sentence structure from PHP, generates nouns and verbs using NLTK,
+    Fetches sentence structure from PHP, generates nouns and verbs using Gemini API,
     then constructs and displays the story.
     """
     await interaction.response.defer() # Acknowledge the interaction
@@ -307,9 +210,9 @@ async def serene_story_command(interaction: discord.Interaction):
     php_backend_url = "https://serenekeks.com/serene_bot_2.php"
     player_name = interaction.user.display_name
 
-    # Initialize nouns and verbs with fallbacks in case NLTK fails or provides insufficient variety
-    nouns = ["creature", "forest", "adventure"]
-    verbs_infinitive = ["walk", "discover"]
+    # Initialize nouns and verbs with fallbacks in case of API failure
+    nouns = ["dragon", "wizard", "monster"]
+    verbs_infinitive = ["fly", "vanish"]
 
     # Initialize php_story_structure with defaults in case PHP call fails
     php_story_structure = {
@@ -329,7 +232,7 @@ async def serene_story_command(interaction: discord.Interaction):
                 if response.status == 200:
                     php_story_structure = await response.json()
                     
-                    # Extract verb form requirements from PHP response
+                    # Extract verb form requirements from PHP response (though currently static, good practice)
                     v1_form_required = php_story_structure.get("verb_forms", {}).get("v1_form", "infinitive")
                     v2_form_required = php_story_structure.get("verb_forms", {}).get("v2_form", "past_tense")
 
@@ -342,17 +245,119 @@ async def serene_story_command(interaction: discord.Interaction):
         print(f"An unexpected error occurred while fetching PHP structure: {e}. Using default story structure and verb forms.")
 
 
-    # Get nouns and verbs using NLTK
     try:
-        nouns = get_simple_nouns(3)
-        verbs_infinitive = get_simple_verbs(2)
+        # Prompt for the Gemini API to get contextually appropriate words
+        # The prompt is significantly refined to ensure variety and contextual cohesion
+        gemini_prompt = """
+        Generate 3 distinct, imaginative, and often absurd or whimsical nouns that can function as characters or objects in a bizarre story.
+        Also, generate 2 distinct, action-oriented verbs in their BASE/INFINITIVE form. These verbs must be suitable for both an infinitive context (e.g., "loved to [verb]") and a simple past tense context (e.g., "they [verb_past_tense]").
+        Crucially, consider the following specific PHP sentence fragments where these verbs will be inserted. Ensure the BASE verb makes sense in these contexts, even when later conjugated to past tense:
+
+        **For Verb 1 (infinitive - will be used after phrases like 'loved to'):**
+        - "who loved to [verb]"
+        - "that hated to [verb]"
+        - "who used to [verb]"
+        - "that preferred to [verb]"
+        - "spent their life trying to [verb]"
+
+        **For Verb 2 (will be converted to simple past tense - will be used after phrases like 'before they'):**
+        - "came barreling towards them before they [verb_past_tense]"
+        - "fell from the heavens just as they [verb_past_tense]"
+        - "slipped off the roof above—and with a thump—they [verb_past_tense]"
+        - "shit out a turd that flew out of their ass so fast, they [verb_past_tense]"
+        - "busted a nut so hard, they [verb_past_tense]"
+        - "burped so loud, they [verb_past_tense]"
+        - "rocketed right into their face—so hard that they [verb_past_tense]"
+        - "crossed over the great divide, gave Jesus a high five, and flew back down with such velocity, that they [verb_past_tense]"
+        - "told such a bad joke that they [verb_past_tense]"
+        - "whispered so quietly that they [verb_past_tense]"
+        - "pissed so loudly that they [verb_past_tense]"
+        - "took a cock so big that they [verb_past_tense]"
+        - "put their thing down, flipped it, and reversed it so perfectly, that they [verb_past_tense]"
+        - "waffle-spanked a vagrant so hard that they [verb_past_tense]"
+        - "kissed Crizz P. so fast that he [verb_past_tense]"
+        - "ate a dong so long that they [verb_past_tense]"
+        - "spun around so fast that they [verb_past_tense]"
+        "vomitted so loudly that they [verb_past_tense]"
+        "sand-blasted out a power-shart so strong, that they [verb_past_tense]"
+
+        Avoid verbs that are passive, imply a state of being, or require complex grammatical structures (e.g., phrasal verbs that depend heavily on prepositions) to make sense in these direct contexts. Focus on verbs that are direct and complete actions.
+
+        Provide the output as a JSON object with keys "nouns" (an array of 3 strings) and "verbs" (an array of 2 strings).
+        Example: {"nouns": ["dragon", "knight", "castle"], "verbs": ["escape", "explode"]}
+        """
+
+        chat_history = []
+        chat_history.push({"role": "user", "parts": [{"text": gemini_prompt}]})
+        
+        # Define the response schema for structured JSON output from Gemini
+        payload = {
+            "contents": chat_history,
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "responseSchema": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "nouns": {
+                            "type": "ARRAY",
+                            "items": {"type": "STRING"}
+                        },
+                        "verbs": {
+                            "type": "ARRAY",
+                            "items": {"type": "STRING"}
+                        }
+                    },
+                    "propertyOrdering": ["nouns", "verbs"]
+                }
+            }
+        }
+        
+        # Load the API key from environment variables
+        # This is essential for deployment on platforms like Railway
+        api_key = os.getenv('GEMINI_API_KEY') 
+        if api_key is None:
+            print("Error: GEMINI_API_KEY environment variable not set. Gemini API calls will fail.")
+            # Fallback to default words if API key is not set
+            nouns = ["creature", "forest", "adventure"]
+            verbs_infinitive = ["walk", "discover"]
+        
+        # Only attempt API call if API key is available
+        if api_key:
+            api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+
+            # Make an asynchronous HTTP POST request to the Gemini API
+            async with aiohttp.ClientSession() as session:
+                async with session.post(api_url, headers={'Content-Type': 'application/json'}, json=payload) as response:
+                    if response.status == 200:
+                        gemini_result = await response.json()
+                        
+                        # Parse the JSON string from Gemini's response
+                        if gemini_result.get("candidates") and len(gemini_result["candidates"]) > 0 and \
+                           gemini_result["candidates"][0].get("content") and \
+                           gemini_result["candidates"][0]["content"].get("parts") and \
+                           len(gemini_result["candidates"][0]["content"]["parts"]) > 0:
+                            
+                            generated_json_str = gemini_result["candidates"][0]["content"]["parts"][0]["text"]
+                            generated_words = json.loads(generated_json_str)
+                            
+                            # Extract nouns and verbs, using fallbacks if keys are missing
+                            nouns = generated_words.get("nouns", ["thing", "place", "event"])
+                            verbs_infinitive = generated_words.get("verbs", ["do", "happen"]) 
+                            
+                            # Ensure we have exactly 3 nouns and 2 verbs, using fallbacks if needed
+                            nouns = (nouns + ["thing", "place", "event"])[:3]
+                            verbs_infinitive = (verbs_infinitive + ["do", "happen"])[:2] 
+
+                        else:
+                            print("Warning: Gemini response structure unexpected. Using fallback words.")
+
+                    else:
+                        print(f"Warning: Gemini API call failed with status {response.status}. Using fallback words.")
+
     except Exception as e:
-        print(f"Error generating words with NLTK: {e}. Using fallback words.")
-        nouns = ["creature", "forest", "adventure"]
-        verbs_infinitive = ["walk", "discover"]
+        print(f"Error calling Gemini API: {e}. Using fallback words.")
 
-
-    # Conjugate verbs based on PHP's requirements
+    # Conjugate verbs based on PHP's requirements (obtained from php_story_structure)
     verb1_final = verbs_infinitive[0]
     if v1_form_required == "past_tense":
         verb1_final = to_past_tense(verbs_infinitive[0])
