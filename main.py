@@ -64,7 +64,8 @@ class PickQuestionButton(discord.ui.Button):
     """A button to confirm the selection of a Jeopardy question."""
     def __init__(self):
         # The button is initially disabled until a question is selected via dropdown
-        super().__init__(style=discord.ButtonStyle.green, label="Pick Question", disabled=True, row=4) # Placed on row 4
+        # Removed row=4 to allow automatic placement on the next available row
+        super().__init__(style=discord.ButtonStyle.green, label="Pick Question", disabled=True) 
 
     async def callback(self, interaction: discord.Interaction):
         """Handles the click on the 'Pick Question' button."""
@@ -114,26 +115,9 @@ class PickQuestionButton(discord.ui.Button):
                 # Mark the question as guessed immediately in the game state
                 question_data["guessed"] = True
                 
-                # Disable the "Pick Question" button and reset dropdowns in the view
-                for item in view.children:
-                    if isinstance(item, PickQuestionButton):
-                        item.disabled = True # Disable the pick button
-                    if isinstance(item, CategoryValueSelect) and item.category_name == selected_category:
-                        # Remove the selected option from the dropdown
-                        item.options = [opt for opt in item.options if opt.value != str(selected_value)]
-                        if not item.options: # If no options left, disable the dropdown itself
-                            item.disabled = True
-                            item.placeholder = f"{item.category_name} (All Guessed)"
-                        else:
-                            item.placeholder = f"Pick for {item.category_name}" # Reset placeholder
-                        item.values = [] # Clear current selection in the dropdown
-                
                 # Clear the view's internal selection state
                 view._selected_category = None
                 view._selected_value = None
-
-                # Update the message to reflect the disabled pick button and updated dropdowns
-                await interaction.response.edit_message(view=view)
 
                 # Present the selected question to the user
                 await game.present_question(interaction, question_data)
@@ -158,17 +142,18 @@ class JeopardyGameView(discord.ui.View):
 
         categories_to_display = []
         if self.game.game_phase == "NORMAL_JEOPARDY_SELECTION":
-            categories_to_display = self.game.board_data.get("normal_jeopardy", [])
+            # Limit to the first 5 categories for dropdown display to fit Discord's row limit
+            categories_to_display = self.game.board_data.get("normal_jeopardy", [])[:5] 
         elif self.game.game_phase == "DOUBLE_JEOPARDY_SELECTION":
-            categories_to_display = self.game.board_data.get("double_jeopardy", [])
+            # Limit to the first 5 categories for dropdown display
+            categories_to_display = self.game.board_data.get("double_jeopardy", [])[:5]
         else:
             # No interactive components (dropdowns/buttons) for Final Jeopardy or other phases
             return
 
         # Add a Select (dropdown) component for each category
-        # Discord allows up to 5 components per row. We can put up to 5 dropdowns per row.
-        # If there are more than 5 categories, they will automatically wrap to the next row.
-        # The example JSON has 6 categories in Normal Jeopardy, so they will fit into 2 rows.
+        # Discord allows up to 5 components per row.
+        # By limiting categories_to_display to 5, all dropdowns will fit on a single row (Row 0).
         
         for category_data in categories_to_display:
             category_name = category_data["category"]
@@ -178,19 +163,16 @@ class JeopardyGameView(discord.ui.View):
                 if not q["guessed"]:
                     options.append(discord.SelectOption(label=f"${q['value']}", value=str(q['value'])))
             
-            if options: # Only add a dropdown if there are available questions in the category
+            # Only add a dropdown if there are available questions in the category
+            # If options is empty, it means all questions in this category are guessed, so we don't add its dropdown.
+            if options: 
                 self.add_item(CategoryValueSelect(category_name, options, f"Pick for {category_name}"))
-            else:
-                # If all questions in a category are guessed, add a disabled dropdown to show its state
-                self.add_item(discord.ui.Select(
-                    placeholder=f"{category_name} (All Guessed)",
-                    options=[discord.SelectOption(label="No questions left", value="0", default=True)], # Dummy option
-                    disabled=True,
-                    custom_id=f"jeopardy_select_disabled_{category_name.replace(' ', '_').lower()}"
-                ))
         
-        # Add the "Pick Question" button at the bottom
-        self.add_item(PickQuestionButton())
+        # Add the "Pick Question" button if there are any active dropdowns (meaning there are still questions to pick)
+        # and if the game is in a selection phase.
+        if (self.game.game_phase == "NORMAL_JEOPARDY_SELECTION" or 
+            self.game.game_phase == "DOUBLE_JEOPARDY_SELECTION") and any(isinstance(item, CategoryValueSelect) for item in self.children):
+            self.add_item(PickQuestionButton())
 
     async def on_timeout(self):
         """Called when the view times out due to inactivity."""
@@ -620,7 +602,7 @@ class TicTacToeButton(discord.ui.Button):
         super().__init__(style=discord.ButtonStyle.secondary, label=player_mark, row=row)
         self.row = row
         self.col = col
-        self.player_mark = player.mark # This will be '⬜', 'X', or 'O'
+        self.player_mark = player_mark # This will be '⬜', 'X', or 'O'
 
     async def callback(self, interaction: discord.Interaction):
         """Handle button click for a Tic-Tac-Toe square."""
@@ -643,7 +625,7 @@ class TicTacToeButton(discord.ui.Button):
         # Set button style based on player mark
         if self.player_mark == "X":
             self.style = discord.ButtonStyle.primary # Blue for X
-        else: # self.player.mark == "O"
+        else: # self.player_mark == "O"
             self.style = discord.ButtonStyle.danger # Red for O
             
         self.disabled = True
@@ -663,7 +645,7 @@ class TicTacToeButton(discord.ui.Button):
             del active_tictactoe_games[interaction.channel.id] # End the game
         elif view._check_draw():
             await interaction.edit_original_response(
-                content="It's a **draw!** 🤝",
+                content="It's a **draw!** �",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -1358,7 +1340,7 @@ async def jeopardy_wager_command(interaction: discord.Interaction, amount: int):
         return
     
     if game.game_phase != "FINAL_JEOPARDY_WAGER":
-        await interaction.followup.send("It's not time to wager for Final Jeopardy.", ephemeral=True)
+        await interaction.response.send_message("It's not time to wager for Final Jeopardy.", ephemeral=True)
         return
 
     await game.handle_wager(interaction, amount)
@@ -1371,3 +1353,4 @@ if BOT_TOKEN is None:
     print("Error: BOT_TOKEN environment variable not set.")
 else:
     bot.run(BOT_TOKEN)
+�
