@@ -92,6 +92,14 @@ class CategoryValueSelect(discord.ui.Select):
                     break
         
         if question_data:
+            # Respond immediately to the interaction to acknowledge the selection
+            # This is crucial to avoid "Unknown interaction" errors.
+            await interaction.response.send_message(
+                f"**{game.player.display_name}** selected **{question_data['category']}** for **${question_data['value']}**.\n\n"
+                "*Processing your selection...*",
+                ephemeral=True # Make this initial response ephemeral
+            )
+
             # Mark the question as guessed
             question_data["guessed"] = True
             game.current_question = question_data # Set current question in game state
@@ -100,9 +108,7 @@ class CategoryValueSelect(discord.ui.Select):
             view._selected_category = None
             view._selected_value = None
 
-            # 1) Hide dropdowns immediately by editing the original message to remove the view
-            await interaction.response.defer() # Defer the interaction response first
-
+            # Edit the original board message to remove the dropdowns
             await game.board_message.edit(
                 content=f"**{game.player.display_name}** selected **{question_data['category']}** for **${question_data['value']}**.\n\n"
                         "*Question selected! Please answer in the channel.*",
@@ -149,10 +155,10 @@ class CategoryValueSelect(discord.ui.Select):
             is_daily_double = question_data.get("double_jeopardy", False)
             
             # Initialize game.current_wager with the question's value by default
-            # It will be updated if it's a Daily Double and a valid wager is received
             game.current_wager = question_data['value'] 
 
             if is_daily_double:
+                # Send the initial Daily Double message using followup.send
                 await interaction.followup.send(
                     f"**DAILY DOUBLE!** {game.player.display_name}, you found the Daily Double!\n"
                     f"Your current score is **${game.score}**."
