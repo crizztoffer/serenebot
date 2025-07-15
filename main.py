@@ -585,7 +585,7 @@ async def serene_story_command(interaction: discord.Interaction):
         - "ate a dong so long that they [verb_past_tense]"
         - "spun around so fast that they [verb_past_tense]"
         "vomitted so loudly that they [verb_past_tense]"
-        "sand-blasted out a power-shart so strong, that that they [verb_past_tense]"
+        "sand-blasted out a power-shart so strong, that they [verb_past_tense]"
 
         Avoid verbs that are passive, imply a state of being, or require complex grammatical structures (e.g., phrasal verbs that depend heavily on prepositions) to make sense in these direct contexts. Focus on verbs that are direct and complete actions.
 
@@ -692,20 +692,20 @@ async def serene_story_command(interaction: discord.Interaction):
 
 # --- MODIFIED /serene_game command ---
 @bot.tree.command(name="serene_game", description="Start a fun game with Serene!")
-@app_commands.describe(game_type="The type of game to play.")
-@app_commands.choices(game_type=[
+@app_commands.choices(game_type=[ # This decorator should come first for the parameter
     app_commands.Choice(name="Tic-Tac-Toe", value="tic_tac_toe"),
     # Add more game choices here when you create them
     # app_commands.Choice(name="Guess the Number", value="guess_the_number"),
 ])
-async def serene_game_command(interaction: discord.Interaction, game_type: app_commands.Choice):
+@app_commands.describe(game_type="The type of game to play.") # Then this one
+async def serene_game_command(interaction: discord.Interaction, game_type: str):
     """
     Handles the /serene_game slash command.
     Starts the selected game directly.
     """
     await interaction.response.defer(ephemeral=True) # Acknowledge privately
 
-    if game_type.value == "tic_tac_toe":
+    if game_type == "tic_tac_toe": # Now directly compare the string value
         # Check if a game is already active in this channel
         if interaction.channel.id in active_tictactoe_games:
             await interaction.followup.send(
@@ -735,7 +735,7 @@ async def serene_game_command(interaction: discord.Interaction, game_type: app_c
         active_tictactoe_games[interaction.channel.id] = game_view # Store active game
     else:
         await interaction.followup.send(
-            f"Game type '{game_type.name}' is not yet implemented. Stay tuned!",
+            f"Game type '{game_type}' is not yet implemented. Stay tuned!",
             ephemeral=True
         )
 
