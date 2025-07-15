@@ -108,10 +108,11 @@ class CategoryValueSelect(discord.ui.Select):
             view._selected_category = None
             view._selected_value = None
 
-            # Edit the original board message to remove the dropdowns
-            # MODIFIED: Changed content to an empty string to remove the "Question selected!" message
+            # Edit the original board message to remove the dropdowns and update content
+            # MODIFIED: Changed content to a relevant message instead of an empty string
             await game.board_message.edit(
-                content="", # Removed the redundant message
+                content=f"**{game.player.display_name}**'s Score: **${game.score}**\n\n"
+                        "Question selected! Please answer in the channel.",
                 view=None # Remove the view to hide dropdowns
             )
             
@@ -483,14 +484,14 @@ class TicTacToeButton(discord.ui.Button):
         if view._check_winner():
             winner = view.players[view.current_player].display_name
             await interaction.edit_original_response(
-                content=f"🎉 **{winner} wins!** 🎉",
+                content=f"🎉 **{winner} wins!** �",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
             del active_tictactoe_games[interaction.channel.id] # End the game
         elif view._check_draw():
             await interaction.edit_original_response(
-                content="It's a **draw!** �",
+                content="It's a **draw!** 🤝",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
