@@ -11,19 +11,29 @@ import aiohttp
 import nltk
 from nltk.corpus import wordnet as wn
 
+# Define a persistent directory for NLTK data
+# This is crucial for deployment environments like Railway
+NLTK_DATA_DIR = os.path.join(os.getcwd(), '.nltk_data')
+if not os.path.exists(NLTK_DATA_DIR):
+    os.makedirs(NLTK_DATA_DIR)
+nltk.data.path.append(NLTK_DATA_DIR)
+
+
 # Download WordNet if not already downloaded
 # This is crucial for nltk.corpus.wordnet to work.
 # Added checks to prevent repeated downloads on subsequent runs.
 try:
-    nltk.data.find('corpora/wordnet')
-except nltk.downloader.DownloadError:
+    print(f"Checking for 'wordnet' in {NLTK_DATA_DIR}...")
+    nltk.data.find('corpora/wordnet', path=[NLTK_DATA_DIR])
+except LookupError:
     print("Downloading WordNet...")
-    nltk.download('wordnet')
+    nltk.download('wordnet', download_dir=NLTK_DATA_DIR)
 try:
-    nltk.data.find('corpora/omw-1.4')
-except nltk.downloader.DownloadError:
+    print(f"Checking for 'omw-1.4' in {NLTK_DATA_DIR}...")
+    nltk.data.find('corpora/omw-1.4', path=[NLTK_DATA_DIR])
+except LookupError:
     print("Downloading OMW-1.4...")
-    nltk.download('omw-1.4')
+    nltk.download('omw-1.4', download_dir=NLTK_DATA_DIR)
 
 
 # Define intents
@@ -180,7 +190,6 @@ async def serene_command(interaction: discord.Interaction, text_input: str):
                     )
                     await interaction.followup.send(display_message)
                 else:
-                    # Handle non-200 HTTP responses
                     await interaction.followup.send(
                         f"**{player_name} says:** {text_input}\n"
                         f"Serene backend returned an error: HTTP Status {response.status}"
