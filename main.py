@@ -2,7 +2,7 @@ import os
 import random
 import urllib.parse
 import json
-import asyncio # Import asyncio for sleep
+import asyncio
 
 import discord
 from discord.ext import commands
@@ -13,15 +13,65 @@ import aiohttp
 intents = discord.Intents.default()
 intents.members = True
 intents.presences = True
-intents.message_content = True # Needed to read user answers for Jeopardy
+intents.message_content = True
 
 # Initialize the bot
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 # --- Game State Storage ---
-# Stores active Tic-Tac-Toe games. Key: channel_id, Value: TicTacToeView instance
 active_tictactoe_games = {}
-# Removed active_jeopardy_games dictionary
+active_jeopardy_games = {} # Re-introducing this for the new Jeopardy game
+
+# --- Placeholder for new Jeopardy Game Class ---
+class NewJeopardyGame:
+    """
+    A placeholder class for the new Jeopardy game.
+    Currently, its primary function is to fetch and parse the Jeopardy data
+    from the external API and store it in separate attributes.
+    """
+    def __init__(self, channel_id: int, player: discord.User):
+        self.channel_id = channel_id
+        self.player = player
+        self.normal_jeopardy_data = None
+        self.double_jeopardy_data = None
+        self.final_jeopardy_data = None
+        self.jeopardy_data_url = "https://serenekeks.com/serene_bot_games.php"
+
+    async def fetch_and_parse_jeopardy_data(self) -> bool:
+        """
+        Fetches the full Jeopardy JSON data from the backend URL.
+        Parses the JSON and separates it into three distinct data structures:
+        normal_jeopardy, double_jeopardy, and final_jeopardy, storing them
+        as attributes of this class.
+        Returns True if data is successfully fetched and parsed, False otherwise.
+        """
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(self.jeopardy_data_url) as response:
+                    if response.status == 200:
+                        full_data = await response.json()
+                        
+                        # Extract and store the normal jeopardy data
+                        self.normal_jeopardy_data = {"normal_jeopardy": full_data.get("normal_jeopardy", [])}
+                        
+                        # Extract and store the double jeopardy data
+                        self.double_jeopardy_data = {"double_jeopardy": full_data.get("double_jeopardy", [])}
+                        
+                        # Extract and store the final jeopardy data
+                        self.final_jeopardy_data = {"final_jeopardy": full_data.get("final_jeopardy", {})}
+                        
+                        print(f"Jeopardy data fetched and parsed for channel {self.channel_id}")
+                        # Optional: Print a snippet for verification in the console
+                        # print(f"Normal Jeopardy categories: {[c['category'] for c in self.normal_jeopardy_data['normal_jeopardy'][:2]]}")
+                        # print(f"Double Jeopardy categories: {[c['category'] for c in self.double_jeopardy_data['double_jeopardy'][:2]]}")
+                        # print(f"Final Jeopardy category: {self.final_jeopardy_data['final_jeopardy'].get('category', 'N/A')}")
+                        return True
+                    else:
+                        print(f"Error fetching Jeopardy data: HTTP Status {response.status}")
+                        return False
+        except Exception as e:
+            print(f"Error loading Jeopardy data: {e}")
+            return False
 
 # --- Tic-Tac-Toe Game Classes ---
 
@@ -74,7 +124,7 @@ class TicTacToeButton(discord.ui.Button):
             del active_tictactoe_games[interaction.channel.id] # End the game
         elif view._check_draw():
             await interaction.edit_original_response(
-                content="It's a **draw!** �",
+                content="It's a **draw!** 🤝",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -310,8 +360,6 @@ async def on_message(message: discord.Message):
     if message.author.id == bot.user.id:
         return
 
-    # Removed Jeopardy-related answer handling
-    
     # Process other commands normally
     await bot.process_commands(message)
 
@@ -663,7 +711,7 @@ async def serene_story_command(interaction: discord.Interaction):
 @bot.tree.command(name="serene_game", description="Start a fun game with Serene!")
 @app_commands.choices(game_type=[ # This decorator should come first for the parameter
     app_commands.Choice(name="Tic-Tac-Toe", value="tic_tac_toe"),
-    # Removed Jeopardy choice
+    app_commands.Choice(name="Jeopardy", value="jeopardy"), # Re-adding Jeopardy choice
 ])
 @app_commands.describe(game_type="The type of game to play.") # Then this one
 async def serene_game_command(interaction: discord.Interaction, game_type: str):
@@ -702,13 +750,50 @@ async def serene_game_command(interaction: discord.Interaction, game_type: str):
         game_view.message = game_message # Store the message for later updates
         active_tictactoe_games[interaction.channel.id] = game_view # Store active game
 
-    else: # Simplified to remove Jeopardy specific handling
+    elif game_type == "jeopardy":
+        if interaction.channel.id in active_jeopardy_games:
+            await interaction.followup.send(
+                "A Jeopardy game is already active in this channel! Please finish it or wait.",
+                ephemeral=True
+            )
+            return
+        
+        await interaction.followup.send("Setting up Jeopardy game...", ephemeral=True)
+        
+        # Initialize the new Jeopardy game
+        jeopardy_game = NewJeopardyGame(interaction.channel.id, interaction.user)
+        
+        # Fetch and parse the data
+        success = await jeopardy_game.fetch_and_parse_jeopardy_data()
+
+        if success:
+            active_jeopardy_games[interaction.channel.id] = jeopardy_game
+            await interaction.followup.send(
+                "Jeopardy data loaded! Normal, Double, and Final Jeopardy data are ready.",
+                ephemeral=True
+            )
+            # For demonstration, you could print the first category of each type
+            normal_cat = jeopardy_game.normal_jeopardy_data['normal_jeopardy'][0]['category'] if jeopardy_game.normal_jeopardy_data['normal_jeopardy'] else 'N/A'
+            double_cat = jeopardy_game.double_jeopardy_data['double_jeopardy'][0]['category'] if jeopardy_game.double_jeopardy_data['double_jeopardy'] else 'N/A'
+            final_cat = jeopardy_game.final_jeopardy_data['final_jeopardy'].get('category', 'N/A')
+            await interaction.followup.send(
+                f"First Normal Jeopardy Category: **{normal_cat}**\n"
+                f"First Double Jeopardy Category: **{double_cat}**\n"
+                f"Final Jeopardy Category: **{final_cat}**",
+                ephemeral=True
+            )
+
+        else:
+            await interaction.followup.send(
+                "Failed to load Jeopardy game data. Please try again later.",
+                ephemeral=True
+            )
+            return
+    else:
         await interaction.followup.send(
             f"Game type '{game_type}' is not yet implemented. Stay tuned!",
             ephemeral=True
         )
-
-# Removed /jeopardy_wager command
 
 # Load environment variables for the token
 BOT_TOKEN = os.getenv('BOT_TOKEN')
