@@ -145,10 +145,64 @@ class CategoryValueSelect(discord.ui.Select):
             else:
                 print("GEMINI_API_KEY not set. Cannot determine dynamic prefixes. Using default.")
 
-            # Send the question publicly (without any prefix hint)
-            await interaction.followup.send(
-                f"*For ${question_data['value']}:*\n**{question_data['question']}**"
-            )
+            # --- Daily Double Wager Logic ---
+            is_daily_double = question_data.get("double_jeopardy", False)
+            wager_amount = question_data['value'] # Default to question value
+
+            if is_daily_double:
+                await interaction.followup.send(
+                    f"**DAILY DOUBLE!** {game.player.display_name}, you found the Daily Double!\n"
+                    f"Your current score is **${game.score}**."
+                )
+
+                # Calculate max wager based on rules
+                max_wager = max(2000, game.score) if game.score >= 0 else 2000
+                
+                wager_prompt_message = await interaction.channel.send(
+                    f"{game.player.display_name}, please enter your wager. "
+                    f"You can wager any amount up to **${max_wager}** (must be positive)."
+                )
+
+                def check_wager(m: discord.Message):
+                    return m.author.id == interaction.user.id and m.channel.id == interaction.channel.id and m.content.isdigit()
+
+                try:
+                    wager_msg = await bot.wait_for('message', check=check_wager, timeout=30.0)
+                    wager_input = int(wager_msg.content)
+
+                    if wager_input <= 0:
+                        await interaction.channel.send("Your wager must be a positive amount. Defaulting to $500.", delete_after=5)
+                        wager_amount = 500
+                    elif wager_input > max_wager:
+                        await interaction.channel.send(f"Your wager exceeds the maximum allowed (${max_wager}). Defaulting to max wager.", delete_after=5)
+                        wager_amount = max_wager
+                    else:
+                        wager_amount = wager_input
+                    
+                    # Delete the wager prompt and the user's wager message for cleaner chat
+                    await wager_prompt_message.delete()
+                    await wager_msg.delete()
+
+                except asyncio.TimeoutError:
+                    await interaction.channel.send("Time's up! You didn't enter a wager. Defaulting to $500.", delete_after=5)
+                    wager_amount = 500
+                except Exception as e:
+                    print(f"Error getting wager: {e}")
+                    await interaction.channel.send("An error occurred while getting your wager. Defaulting to $500.", delete_after=5)
+                    wager_amount = 500
+                
+                game.current_wager = wager_amount # Store wager in game state
+                
+                # Now send the question for Daily Double, reflecting the wager
+                await interaction.followup.send(
+                    f"You wagered **${wager_amount}**.\n*For ${question_data['value']}:*\n**{question_data['question']}**"
+                )
+            else: # Not a Daily Double, proceed as before
+                game.current_wager = question_data['value'] # For non-daily doubles, wager is just the question value
+                await interaction.followup.send(
+                    f"*For ${question_data['value']}:*\n**{question_data['question']}**"
+                )
+
 
             # Define a check for the user's response, now strictly using the determined_prefix
             def check_answer(m: discord.Message):
@@ -214,12 +268,12 @@ class CategoryValueSelect(discord.ui.Select):
 
                 # Compare the processed user answer with the correct answer
                 if is_correct:
-                    game.score += question_data['value']
+                    game.score += game.current_wager # Use wager for score
                     await interaction.followup.send(
                         f"✅ Correct, {game.player.display_name}! Your score is now **${game.score}**."
                     )
                 else:
-                    game.score -= question_data['value'] # Deduct score for incorrect answer
+                    game.score -= game.current_wager # Use wager for score
                     # Modified: Include the determined prefix in the incorrect answer message
                     await interaction.followup.send(
                         f"❌ Incorrect, {game.player.display_name}! The correct answer was: "
@@ -227,6 +281,7 @@ class CategoryValueSelect(discord.ui.Select):
                     )
 
             except asyncio.TimeoutError:
+                game.score -= game.current_wager # Deduct wager for timeout
                 await interaction.followup.send(
                     f"⏰ Time's up, {game.player.display_name}! You didn't answer in time for '${question_data['value']}' question. The correct answer was: "
                     f"**__\"{determined_prefix}\"__** ||{question_data['answer']}||. Your score is still **${game.score}**."
@@ -236,6 +291,7 @@ class CategoryValueSelect(discord.ui.Select):
                 await interaction.followup.send("An unexpected error occurred while waiting for your answer.")
             finally:
                 game.current_question = None # Clear current question state
+                game.current_wager = 0 # Reset wager
 
                 # 4) Send a NEW message with the dropdowns
                 new_jeopardy_view = JeopardyGameView(game)
@@ -322,6 +378,7 @@ class NewJeopardyGame:
         self.jeopardy_data_url = "https://serenekeks.com/serene_bot_games.php"
         self.board_message = None # To store the message containing the board UI
         self.current_question = None # Stores the question currently being presented
+        self.current_wager = 0 # Stores the wager for Daily Double/Final Jeopardy
 
     async def fetch_and_parse_jeopardy_data(self) -> bool:
         """
@@ -624,7 +681,7 @@ class TicTacToeView(discord.ui.View):
             await self.message.edit(content="Game timed out due to inactivity.", view=None, embed=None)
         if self.message and self.message.channel.id in active_tictactoe_games:
             del active_tictactoe_games[self.message.channel.id]
-        print(f"Tic-Tac-Toe game in channel {self.message.channel_id} timed out.")
+        print(f"Tic-Tac-Toe game in channel {self.message.channel.id} timed out.")
 
 
 # --- Bot Events ---
