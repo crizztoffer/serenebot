@@ -189,14 +189,17 @@ class CategoryValueSelect(discord.ui.Select):
                         f"✅ Correct, {game.player.display_name}! Your score is now **${game.score}**."
                     )
                 else:
-                    await interaction.followup.send(
-                        f"❌ Incorrect, {game.player.display_name}! The correct answer was: ||{question_data['answer']}||. Your score is now **${game.score}**."
-                    )
                     game.score -= question_data['value'] # Deduct score for incorrect answer
+                    # Modified: Include the determined prefix in the incorrect answer message
+                    await interaction.followup.send(
+                        f"❌ Incorrect, {game.player.display_name}! The correct answer was: "
+                        f"**__\"{determined_prefix}\"__** ||{question_data['answer']}||. Your score is now **${game.score}**."
+                    )
 
             except asyncio.TimeoutError:
                 await interaction.followup.send(
-                    f"⏰ Time's up, {game.player.display_name}! You didn't answer in time for '${question_data['value']}' question. The correct answer was: ||{question_data['answer']}||. Your score is still **${game.score}**."
+                    f"⏰ Time's up, {game.player.display_name}! You didn't answer in time for '${question_data['value']}' question. The correct answer was: "
+                    f"**__\"{determined_prefix}\"__** ||{question_data['answer']}||. Your score is still **${game.score}**."
                 )
             except Exception as e:
                 print(f"Error waiting for answer: {e}")
@@ -374,7 +377,7 @@ class TicTacToeButton(discord.ui.Button):
         if view._check_winner():
             winner = view.players[view.current_player].display_name
             await interaction.edit_original_response(
-                content=f"🎉 **{winner} wins!** 🎉",
+                content=f"🎉 **{winner} wins!** �",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -556,7 +559,7 @@ class TicTacToeView(discord.ui.View):
             if self._check_winner():
                 winner = self.players[self.current_player].display_name
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner} wins!** �",
+                    content=f"🎉 **{winner} wins!** 🎉",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -905,13 +908,11 @@ async def serene_story_command(interaction: discord.Interaction):
         if api_key:
             api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
 
-            # Make an asynchronous HTTP POST request to the Gemini API
             async with aiohttp.ClientSession() as session:
                 async with session.post(api_url, headers={'Content-Type': 'application/json'}, json=payload) as response:
                     if response.status == 200:
                         gemini_result = await response.json()
                         
-                        # Parse the JSON string from Gemini's response
                         if gemini_result.get("candidates") and len(gemini_result["candidates"]) > 0 and \
                            gemini_result["candidates"][0].get("content") and \
                            gemini_result["candidates"][0]["content"].get("parts") and \
@@ -920,12 +921,9 @@ async def serene_story_command(interaction: discord.Interaction):
                             generated_json_str = gemini_result["candidates"][0]["content"]["parts"][0]["text"]
                             generated_words = json.loads(generated_json_str)
                             
-                            # Extract nouns and verbs, using fallbacks if keys are missing
-                            # Convert to lowercase explicitly as a safeguard
                             nouns = [n.lower() for n in generated_words.get("nouns", ["thing", "place", "event"])]
                             verbs_infinitive = [v.lower() for v in generated_words.get("verbs", ["do", "happen"])]
                             
-                            # Ensure we have exactly 3 nouns and 2 verbs, using fallbacks if needed
                             nouns = (nouns + ["thing", "place", "event"])[:3]
                             verbs_infinitive = (verbs_infinitive + ["do", "happen"])[:2] 
 
@@ -954,7 +952,7 @@ async def serene_story_command(interaction: discord.Interaction):
         php_story_structure["second"] + verb1_final +
         php_story_structure["third"] + nouns[1] +
         php_story_structure["forth"] + verb2_final +
-        php_story_structure["fifth"] # Noun3 is now part of the fifth phrase in PHP's structure
+        php_story_structure["fifth"]
     )
 
     display_message = (
@@ -966,20 +964,19 @@ async def serene_story_command(interaction: discord.Interaction):
 
 # --- MODIFIED /serene_game command ---
 @bot.tree.command(name="serene_game", description="Start a fun game with Serene!")
-@app_commands.choices(game_type=[ # This decorator should come first for the parameter
+@app_commands.choices(game_type=[
     app_commands.Choice(name="Tic-Tac-Toe", value="tic_tac_toe"),
-    app_commands.Choice(name="Jeopardy", value="jeopardy"), # Re-adding Jeopardy choice
+    app_commands.Choice(name="Jeopardy", value="jeopardy"),
 ])
-@app_commands.describe(game_type="The type of game to play.") # Then this one
+@app_commands.describe(game_type="The type of game to play.")
 async def serene_game_command(interaction: discord.Interaction, game_type: str):
     """
     Handles the /serene_game slash command.
     Starts the selected game directly.
     """
-    await interaction.response.defer(ephemeral=True) # Acknowledge privately
+    await interaction.response.defer(ephemeral=True)
 
     if game_type == "tic_tac_toe":
-        # Check if a game is already active in this channel
         if interaction.channel.id in active_tictactoe_games:
             await interaction.followup.send(
                 "A Tic-Tac-Toe game is already active in this channel! Please finish it or wait.",
@@ -988,9 +985,8 @@ async def serene_game_command(interaction: discord.Interaction, game_type: str):
             return
 
         player1 = interaction.user
-        player2 = bot.user # Bot plays as the second player
+        player2 = bot.user
 
-        # Send initial private message (now part of followup)
         await interaction.followup.send(
             f"Starting Tic-Tac-Toe for {player1.display_name} vs. {player2.display_name}...",
             ephemeral=True
@@ -998,14 +994,13 @@ async def serene_game_command(interaction: discord.Interaction, game_type: str):
 
         game_view = TicTacToeView(player_x=player1, player_o=player2)
         
-        # Send the public game board message
         game_message = await interaction.channel.send(
             content=f"It's **{player1.display_name}**'s turn (X)",
             embed=game_view._start_game_message(),
             view=game_view
         )
-        game_view.message = game_message # Store the message for later updates
-        active_tictactoe_games[interaction.channel.id] = game_view # Store active game
+        game_view.message = game_message
+        active_tictactoe_games[interaction.channel.id] = game_view
 
     elif game_type == "jeopardy":
         if interaction.channel.id in active_jeopardy_games:
@@ -1017,26 +1012,22 @@ async def serene_game_command(interaction: discord.Interaction, game_type: str):
         
         await interaction.followup.send("Setting up Jeopardy game...", ephemeral=True)
         
-        # Initialize the new Jeopardy game
         jeopardy_game = NewJeopardyGame(interaction.channel.id, interaction.user)
         
-        # Fetch and parse the data
         success = await jeopardy_game.fetch_and_parse_jeopardy_data()
 
         if success:
             active_jeopardy_games[interaction.channel.id] = jeopardy_game
             
-            # Create and populate the JeopardyGameView with dropdowns
             jeopardy_view = JeopardyGameView(jeopardy_game)
-            jeopardy_view.add_board_components() # This will add the dropdowns
+            jeopardy_view.add_board_components()
             
-            # Send the initial Jeopardy board with dropdowns
             game_message = await interaction.channel.send(
                 content=f"**{jeopardy_game.player.display_name}**'s Score: **${jeopardy_game.score}**\n\n"
                         "Select a category and value from the dropdowns below!",
                 view=jeopardy_view
             )
-            jeopardy_game.board_message = game_message # Store the message for updates
+            jeopardy_game.board_message = game_message
 
         else:
             await interaction.followup.send(
