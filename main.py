@@ -2,6 +2,7 @@ import os
 import random
 import urllib.parse
 import json
+import asyncio # Import asyncio for sleep
 
 import discord
 from discord.ext import commands
@@ -53,31 +54,41 @@ class TicTacToeButton(discord.ui.Button):
         self.disabled = True
         view.board[self.row][self.col] = self.player_mark # Update internal board state
 
-        # Check for win or draw
+        # Defer the interaction response to allow time for bot's move if needed
+        await interaction.response.defer()
+
+        # Check for win or draw after human's move
         if view._check_winner():
             winner = view.players[view.current_player].display_name
-            await interaction.response.edit_message(
+            await interaction.edit_original_response(
                 content=f"🎉 **{winner} wins!** 🎉",
-                embed=view._start_game_message(), # REMOVED .to_dict() here
+                embed=view._start_game_message(),
                 view=view._end_game()
             )
             del active_tictactoe_games[interaction.channel_id] # End the game
         elif view._check_draw():
-            await interaction.response.edit_message(
+            await interaction.edit_original_response(
                 content="It's a **draw!** 🤝",
-                embed=view._start_game_message(), # REMOVED .to_dict() here
+                embed=view._start_game_message(),
                 view=view._end_game()
             )
             del active_tictactoe_games[interaction.channel_id] # End the game
         else:
-            # Switch player and update message
+            # Switch player
             view.current_player = "O" if view.current_player == "X" else "X"
             next_player_obj = view.players[view.current_player]
-            await interaction.response.edit_message(
+
+            # Update message for next turn
+            await interaction.edit_original_response(
                 content=f"It's **{next_player_obj.display_name}**'s turn ({view.current_player})",
-                embed=view._start_game_message(), # REMOVED .to_dict() here
+                embed=view._start_game_message(),
                 view=view
             )
+
+            # If it's the bot's turn, make its move
+            if view.players[view.current_player].id == bot.user.id:
+                await asyncio.sleep(1) # Small delay for natural feel
+                await view._bot_make_move(interaction)
 
 
 class TicTacToeView(discord.ui.View):
@@ -103,7 +114,19 @@ class TicTacToeView(discord.ui.View):
            This method is called by the button's callback, not directly by the view.
            The button itself updates its label and style.
         """
-        pass # This method is no longer strictly needed as buttons update themselves on click
+        # This method is no longer strictly needed as buttons update themselves on click
+        # However, we can use it to refresh all buttons from the internal board state
+        for item in self.children:
+            if isinstance(item, TicTacToeButton):
+                mark = self.board[item.row][item.col]
+                item.label = mark
+                if mark == "X":
+                    item.style = discord.ButtonStyle.primary
+                elif mark == "O":
+                    item.style = discord.ButtonStyle.danger
+                else:
+                    item.style = discord.ButtonStyle.secondary
+                item.disabled = mark != " " # Disable if already marked
 
 
     def _start_game_message(self) -> discord.Embed:
@@ -129,18 +152,19 @@ class TicTacToeView(discord.ui.View):
         embed.add_field(name="Board", value=board_str, inline=False)
         return embed
 
-    def _check_winner(self) -> bool:
-        """Checks if the current player has won."""
-        board = self.board
-        p = self.current_player
-
+    def _check_win_state(self, board, player) -> bool:
+        """Checks if a given player has won on the provided board."""
         # Check rows, columns, and diagonals
         for i in range(3):
-            if all(board[i][j] == p for j in range(3)): return True # Row
-            if all(board[j][i] == p for j in range(3)): return True # Column
-        if all(board[i][i] == p for i in range(3)): return True # Diagonal \
-        if all(board[i][2-i] == p for i in range(3)): return True # Diagonal /
+            if all(board[i][j] == player for j in range(3)): return True # Row
+            if all(board[j][i] == player for j in range(3)): return True # Column
+        if all(board[i][i] == player for i in range(3)): return True # Diagonal \
+        if all(board[i][2-i] == player for i in range(3)): return True # Diagonal /
         return False
+
+    def _check_winner(self) -> bool:
+        """Checks if the current player has won."""
+        return self._check_win_state(self.board, self.current_player)
 
     def _check_draw(self) -> bool:
         """Checks if the game is a draw."""
@@ -148,6 +172,99 @@ class TicTacToeView(discord.ui.View):
             if " " in row:
                 return False # Still empty spots
         return not self._check_winner() # Only a draw if no winner and board is full
+
+    def _get_empty_cells(self, board):
+        """Returns a list of (row, col) tuples for empty cells."""
+        empty_cells = []
+        for r in range(3):
+            for c in range(3):
+                if board[r][c] == " ":
+                    empty_cells.append((r, c))
+        return empty_cells
+
+    def _minimax(self, board, is_maximizing_player):
+        """
+        Minimax algorithm to determine the best move.
+        is_maximizing_player: True for bot ('O'), False for human ('X')
+        """
+        # Base cases: Check for win/loss/draw
+        if self._check_win_state(board, "O"): # Bot wins
+            return 1
+        if self._check_win_state(board, "X"): # Human wins
+            return -1
+        if not self._get_empty_cells(board): # Draw
+            return 0
+
+        if is_maximizing_player: # Bot's turn ('O')
+            best_eval = -float('inf')
+            for r, c in self._get_empty_cells(board):
+                board[r][c] = "O"
+                evaluation = self._minimax(board, False) # Recurse for human's turn
+                board[r][c] = " " # Undo move (backtrack)
+                best_eval = max(best_eval, evaluation)
+            return best_eval
+        else: # Human's turn ('X')
+            best_eval = float('inf')
+            for r, c in self._get_empty_cells(board):
+                board[r][c] = "X"
+                evaluation = self._minimax(board, True) # Recurse for bot's turn
+                board[r][c] = " " # Undo move (backtrack)
+                best_eval = min(best_eval, evaluation)
+            return best_eval
+
+    async def _bot_make_move(self, interaction: discord.Interaction):
+        """Calculates and makes the bot's optimal move."""
+        best_score = -float('inf')
+        best_move = None
+
+        # Iterate through all possible moves to find the best one
+        for r, c in self._get_empty_cells(self.board):
+            self.board[r][c] = "O" # Make hypothetical move for bot
+            score = self._minimax(self.board, False) # Evaluate human's response to this move
+            self.board[r][c] = " " # Undo hypothetical move
+
+            if score > best_score:
+                best_score = score
+                best_move = (r, c)
+        
+        if best_move:
+            row, col = best_move
+            self.board[row][col] = "O" # Apply the best move to the actual board
+
+            # Find the corresponding button and update its state
+            for item in self.children:
+                if isinstance(item, TicTacToeButton) and item.row == row and item.col == col:
+                    item.label = "O"
+                    item.style = discord.ButtonStyle.danger
+                    item.disabled = True
+                    break
+            
+            # Check for win or draw after bot's move
+            if self._check_winner():
+                winner = self.players[self.current_player].display_name
+                await interaction.edit_original_response(
+                    content=f"🎉 **{winner} wins!** 🎉",
+                    embed=self._start_game_message(),
+                    view=self._end_game()
+                )
+                del active_tictactoe_games[interaction.channel_id]
+            elif self._check_draw():
+                await interaction.edit_original_response(
+                    content="It's a **draw!** 🤝",
+                    embed=self._start_game_message(),
+                    view=self._end_game()
+                )
+                del active_tictactoe_games[interaction.channel_id]
+            else:
+                # Switch player back to human
+                self.current_player = "X"
+                next_player_obj = self.players[self.current_player]
+                await interaction.edit_original_response(
+                    content=f"It's **{next_player_obj.display_name}**'s turn ({self.current_player})",
+                    embed=self._start_game_message(),
+                    view=self
+                )
+
 
     def _end_game(self):
         """Disables all buttons and removes the view from the active games."""
