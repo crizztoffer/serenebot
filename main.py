@@ -266,7 +266,7 @@ class NewJeopardyGame:
 
 class TicTacToeButton(discord.ui.Button):
     """Represents a single square on the Tic-Tac-Toe board."""
-    def __init__(self, row: int, col: int, player_mark: str = "⬜"): # Changed from " " to "⬜"
+    def __init__(self, row: int, col: int, player_mark: str = "⬜"):
         super().__init__(style=discord.ButtonStyle.secondary, label=player_mark, row=row)
         self.row = row
         self.col = col
@@ -313,7 +313,7 @@ class TicTacToeButton(discord.ui.Button):
             del active_tictactoe_games[interaction.channel.id] # End the game
         elif view._check_draw():
             await interaction.edit_original_response(
-                content="It's a **draw!** �",
+                content="It's a **draw!** 🤝",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -324,14 +324,15 @@ class TicTacToeButton(discord.ui.Button):
             next_player_obj = view.players[view.current_player]
 
             # Update message for next turn
+            # Corrected line: changed self.current_player back to view.current_player
             await interaction.edit_original_response(
-                content=f"It's **{next_player_obj.display_name}**'s turn ({self.current_player})", # Fixed: view.current_player -> self.current_player
+                content=f"It's **{next_player_obj.display_name}**'s turn ({view.current_player})",
                 embed=view._start_game_message(),
                 view=view
             )
 
             # If it's the bot's turn, make its move
-            if view.players[self.current_player].id == bot.user.id: # Fixed: view.current_player -> self.current_player
+            if view.players[view.current_player].id == bot.user.id: # Fixed: view.current_player -> self.current_player
                 await asyncio.sleep(1) # Small delay for natural feel
                 await view._bot_make_move(interaction)
 
@@ -352,7 +353,7 @@ class TicTacToeView(discord.ui.View):
         for row in range(3):
             for col in range(3):
                 # Pass " " as the initial label for the button
-                self.add_item(TicTacToeButton(row, col, player_mark="⬜")) # Changed here
+                self.add_item(TicTacToeButton(row, col, player_mark="⬜"))
 
     def _update_board_display(self):
         """Updates the labels and styles of the buttons to reflect the current board state.
@@ -488,7 +489,7 @@ class TicTacToeView(discord.ui.View):
             if self._check_winner():
                 winner = self.players[self.current_player].display_name
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner} wins!** 🎉",
+                    content=f"🎉 **{winner} wins!** �",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -505,7 +506,7 @@ class TicTacToeView(discord.ui.View):
                 self.current_player = "X"
                 next_player_obj = self.players[self.current_player]
                 await interaction.edit_original_response(
-                    content=f"It's **{next_player_obj.display_name}**'s turn ({self.current_player})", # Fixed: view.current_player -> self.current_player
+                    content=f"It's **{next_player_obj.display_name}**'s turn ({self.current_player})",
                     embed=self._start_game_message(),
                     view=self
                 )
