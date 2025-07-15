@@ -58,11 +58,45 @@ class CategoryValueSelect(discord.ui.Select):
         view._selected_category = self.category_name
         view._selected_value = selected_value
         
-        # For debugging: Acknowledge the selection
-        await interaction.response.send_message(
-            f"You selected **{self.category_name}** for **${selected_value}**.",
-            ephemeral=True
-        )
+        # Find the actual question data
+        question_data = None
+        categories_in_current_phase = game.normal_jeopardy_data.get("normal_jeopardy", [])
+
+        for cat_data in categories_in_current_phase:
+            if cat_data["category"] == self.category_name:
+                for q_data in cat_data["questions"]:
+                    if q_data["value"] == selected_value and not q_data["guessed"]:
+                        question_data = q_data
+                        break
+                if question_data:
+                    break
+        
+        if question_data:
+            # Mark the question as guessed
+            question_data["guessed"] = True
+            game.current_question = question_data # Set current question in game state
+
+            # Clear the view's internal selection state
+            view._selected_category = None
+            view._selected_value = None
+
+            # Rebuild and update the view to reflect the guessed question
+            view.add_board_components() 
+            await interaction.response.edit_message(view=view) # Edit the original message to update dropdowns
+            
+            # Send the question publicly in the specified format
+            await interaction.followup.send(
+                f"*For ${question_data['value']}:*\n**{question_data['question']}**"
+            )
+            game.current_question = None # Clear current question after displaying it (for now)
+
+        else:
+            # If for some reason the question is not found or already guessed (race condition)
+            await interaction.response.send_message(
+                f"Question '{self.category_name}' for ${selected_value} not found or already picked. Please select another.",
+                ephemeral=True
+            )
+
 
 # Removed PickQuestionButton class as requested.
 
@@ -165,8 +199,6 @@ class NewJeopardyGame:
         except Exception as e:
             print(f"Error loading Jeopardy data: {e}")
             return False
-
-    # Removed _get_board_display_embed method as it's no longer needed.
 
 
 # --- Tic-Tac-Toe Game Classes ---
@@ -395,7 +427,7 @@ class TicTacToeView(discord.ui.View):
             if self._check_winner():
                 winner = self.players[self.current_player].display_name
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner} wins!** �",
+                    content=f"🎉 **{winner} wins!** 🎉",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
