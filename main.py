@@ -25,11 +25,12 @@ active_tictactoe_games = {}
 
 class TicTacToeButton(discord.ui.Button):
     """Represents a single square on the Tic-Tac-Toe board."""
-    def __init__(self, row: int, col: int, player_mark: str = " "):
+    # Changed default player_mark to '⬜' to satisfy Discord's label requirement
+    def __init__(self, row: int, col: int, player_mark: str = "⬜"):
         super().__init__(style=discord.ButtonStyle.secondary, label=player_mark, row=row)
         self.row = row
         self.col = col
-        self.player_mark = player_mark
+        self.player_mark = player_mark # This will be '⬜', 'X', or 'O'
 
     async def callback(self, interaction: discord.Interaction):
         """Handle button click for a Tic-Tac-Toe square."""
@@ -40,17 +41,17 @@ class TicTacToeButton(discord.ui.Button):
             await interaction.response.send_message("It's not your turn!", ephemeral=True)
             return
 
-        # Ensure the spot is empty
-        if self.player_mark != " ":
+        # Ensure the spot is empty (check against the actual board state, not just button label)
+        if view.board[self.row][self.col] != " ": # Check the internal board state
             await interaction.response.send_message("That spot is already taken!", ephemeral=True)
             return
 
         # Update the button and board
-        self.player_mark = view.current_player
-        self.label = self.player_mark
+        self.player_mark = view.current_player # Update button's internal state
+        self.label = self.player_mark # Update button's visible label
         self.style = discord.ButtonStyle.primary if self.player_mark == "X" else discord.ButtonStyle.danger
         self.disabled = True
-        view.board[self.row][self.col] = self.player_mark
+        view.board[self.row][self.col] = self.player_mark # Update internal board state
 
         # Check for win or draw
         if view._check_winner():
@@ -85,7 +86,7 @@ class TicTacToeView(discord.ui.View):
         super().__init__(timeout=300) # Game times out after 5 minutes of inactivity
         self.players = {"X": player_x, "O": player_o}
         self.current_player = "X"
-        self.board = [[" ", " ", " "], [" ", " ", " "], [" ", " ", " "]]
+        self.board = [[" ", " ", " "], [" ", " ", " "], [" ", " ", " "]] # Internal board uses " " for empty
         self.message = None # To store the message containing the board
 
         self._create_board()
@@ -94,21 +95,16 @@ class TicTacToeView(discord.ui.View):
         """Initializes the 3x3 grid of buttons."""
         for row in range(3):
             for col in range(3):
-                self.add_item(TicTacToeButton(row, col))
+                # Pass "⬜" as the initial label for the button
+                self.add_item(TicTacToeButton(row, col, player_mark="⬜"))
 
     def _update_board_display(self):
-        """Updates the labels and styles of the buttons to reflect the current board state."""
-        for item in self.children:
-            if isinstance(item, TicTacToeButton):
-                mark = self.board[item.row][item.col]
-                item.label = mark
-                if mark == "X":
-                    item.style = discord.ButtonStyle.primary
-                elif mark == "O":
-                    item.style = discord.ButtonStyle.danger
-                else:
-                    item.style = discord.ButtonStyle.secondary
-                item.disabled = mark != " " # Disable if already marked
+        """Updates the labels and styles of the buttons to reflect the current board state.
+           This method is called by the button's callback, not directly by the view.
+           The button itself updates its label and style.
+        """
+        pass # This method is no longer strictly needed as buttons update themselves on click
+
 
     def _start_game_message(self) -> discord.Embed:
         """Generates the embed for the game board."""
@@ -185,41 +181,6 @@ class GameSelect(discord.ui.Select):
         selected_game = self.values[0]
 
         if selected_game == "Tic-Tac-Toe":
-            # --- START DEBUGGING CODE ---
-            # Get the bot's Member object for the current guild
-            me = interaction.guild.me 
-            # Get permissions the bot has in the specific channel where the interaction occurred
-            permissions = interaction.channel.permissions_for(me)
-            
-            # Check for 'send_messages' permission
-            if not permissions.send_messages:
-                print(f"DEBUG: Bot does NOT have 'send_messages' in channel {interaction.channel.name} ({interaction.channel.id})")
-                await interaction.response.send_message(
-                    "I don't have permission to send messages in this channel! Please check my permissions.",
-                    ephemeral=True
-                )
-                return # Crucial: Stop execution if permission is missing
-            
-            # Check for 'embed_links' permission
-            if not permissions.embed_links:
-                print(f"DEBUG: Bot does NOT have 'embed_links' in channel {interaction.channel.name} ({interaction.channel.id})")
-                await interaction.response.send_message(
-                    "I don't have permission to embed links in this channel! My game board won't show correctly.",
-                    ephemeral=True
-                )
-                # Note: We don't return here, as the game might still be playable, just without the nice embed.
-                # However, the current implementation heavily relies on the embed for the board display.
-                # If this error persists, consider making this a 'return' as well.
-            
-            # Check for 'use_external_emojis' permission (for X and O emojis)
-            if not permissions.use_external_emojis:
-                print(f"DEBUG: Bot does NOT have 'use_external_emojis' in channel {interaction.channel.name} ({interaction.channel.id})")
-                await interaction.response.send_message(
-                    "I don't have permission to use external emojis in this channel! The X and O marks might not display correctly.",
-                    ephemeral=True
-                )
-            # --- END DEBUGGING CODE ---
-
             # Check if a game is already active in this channel
             if interaction.channel.id in active_tictactoe_games:
                 await interaction.response.send_message(
