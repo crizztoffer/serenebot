@@ -26,15 +26,14 @@ active_jeopardy_games = {} # Re-introducing this for the new Jeopardy game
 
 class CategoryValueSelect(discord.ui.Select):
     """A dropdown (select) for choosing a question's value within a specific category."""
-    def __init__(self, category_name: str, options: list[discord.SelectOption], placeholder: str, row: int, disabled: bool = False): # Added disabled parameter
+    def __init__(self, category_name: str, options: list[discord.SelectOption], placeholder: str, row: int):
         super().__init__(
             placeholder=placeholder,
             min_values=1,
             max_values=1,
             options=options,
             custom_id=f"jeopardy_select_{category_name.replace(' ', '_').lower()}_{row}", # Add row to custom_id for uniqueness
-            row=row,
-            disabled=disabled # Use the passed disabled state
+            row=row
         )
         self.category_name = category_name # Store category name for later use
 
@@ -78,40 +77,76 @@ class CategoryValueSelect(discord.ui.Select):
             view._selected_category = None
             view._selected_value = None
 
-            # Rebuild and update the view to reflect the guessed question and disable dropdowns
-            view.add_board_components() # This rebuilds the view with disabled dropdowns
-            await interaction.response.edit_message(view=view) # Edit the original message to update dropdowns and disable them
+            # 1) Hide dropdowns immediately by editing the original message to remove the view
+            await interaction.response.defer() # Defer the interaction response first
+
+            await game.board_message.edit(
+                content=f"**{game.player.display_name}** selected **{question_data['category']}** for **${question_data['value']}**.\n\n"
+                        "*Question selected! Please answer in the channel.*",
+                view=None # Remove the view to hide dropdowns
+            )
             
-            # Send the question and answer publicly in the specified format for debugging
+            # Send the question publicly (without the answer for regular play)
             await interaction.followup.send(
-                f"*For ${question_data['value']}:*\n**Question:** {question_data['question']}\n**Answer:** ||{question_data['answer']}||"
+                f"*For ${question_data['value']}:*\n**{question_data['question']}**"
             )
 
             # Define a check for the user's response
             def check_answer(m: discord.Message):
-                # Check if message is in the same channel, from the same user, and starts with required phrase
+                # 2) Check if message is in the same channel, from the same user, and starts with required phrase
+                required_prefixes = ("what is", "who is", "what are", "who are", "who were", "what were")
                 return (m.channel.id == interaction.channel.id and
                         m.author.id == interaction.user.id and
-                        m.content.lower().startswith(("what is", "who is", "what are", "who are")))
+                        m.content.lower().startswith(required_prefixes))
 
             try:
                 # Wait for the user's response for a limited time (e.g., 30 seconds)
                 user_answer_msg = await bot.wait_for('message', check=check_answer, timeout=30.0)
-                await interaction.followup.send(f"Received your answer: '{user_answer_msg.content}'. (Answer processing not yet implemented)")
-                # TODO: Implement actual answer checking logic and score update here
-                # For now, we just acknowledge and re-enable dropdowns
+                user_raw_answer = user_answer_msg.content.lower()
+
+                # Strip the prefixes from the user's answer for comparison
+                prefixes_to_strip = ("what is", "who is", "what are", "who are", "who were", "what were")
+                processed_user_answer = user_raw_answer
+                for prefix in prefixes_to_strip:
+                    if user_raw_answer.startswith(prefix):
+                        processed_user_answer = user_raw_answer[len(prefix):].strip()
+                        break
+                
+                correct_answer_lower = question_data['answer'].lower()
+
+                # Compare the processed user answer with the correct answer
+                if processed_user_answer == correct_answer_lower:
+                    game.score += question_data['value']
+                    await interaction.followup.send(
+                        f"✅ Correct, {game.player.display_name}! Your score is now **${game.score}**."
+                    )
+                else:
+                    game.score -= question_data['value']
+                    await interaction.followup.send(
+                        f"❌ Incorrect, {game.player.display_name}! The correct answer was: ||{question_data['answer']}||. Your score is now **${game.score}**."
+                    )
 
             except asyncio.TimeoutError:
-                await interaction.followup.send(f"Time's up! You didn't answer in time for '${question_data['value']}' question. The correct answer was: ||{question_data['answer']}||")
+                await interaction.followup.send(
+                    f"⏰ Time's up, {game.player.display_name}! You didn't answer in time for '${question_data['value']}' question. The correct answer was: ||{question_data['answer']}||. Your score is still **${game.score}**."
+                )
             except Exception as e:
                 print(f"Error waiting for answer: {e}")
-                await interaction.followup.send("An error occurred while waiting for your answer.")
+                await interaction.followup.send("An unexpected error occurred while waiting for your answer.")
             finally:
                 game.current_question = None # Clear current question state
-                # Re-enable dropdowns and update the message
-                view.add_board_components() # Rebuilds the view with enabled dropdowns (if questions remain)
+
+                # 4) Re-display dropdowns and update the message
+                # Create a NEW JeopardyGameView instance to ensure it's fresh
+                new_jeopardy_view = JeopardyGameView(game)
+                new_jeopardy_view.add_board_components() # Rebuilds the view with updated options (guessed questions removed)
+
                 if game.board_message: # Ensure board_message exists before editing
-                    await game.board_message.edit(view=view)
+                    await game.board_message.edit(
+                        content=f"**{game.player.display_name}**'s Score: **${game.score}**\n\n"
+                                "Select a category and value from the dropdowns below!", # Restore original content with updated score
+                        view=new_jeopardy_view # Assign the new view
+                    )
                 else:
                     print("Warning: game.board_message was not found, could not re-enable view.")
 
@@ -135,14 +170,10 @@ class JeopardyGameView(discord.ui.View):
         """
         Dynamically adds dropdowns (selects) for categories to the view.
         Each dropdown is placed on its own row, up to a maximum of 5 rows (0-4).
-        Dropdowns are disabled if a question is currently active.
         """
         self.clear_items()  # Clear existing items before rebuilding the board
 
         categories_to_process = self.game.normal_jeopardy_data.get("normal_jeopardy", [])
-
-        # Determine if dropdowns should be disabled (i.e., if a question is currently active)
-        disable_dropdowns = bool(self.game.current_question)
 
         # Iterate through categories and assign each to a new row, limiting to 5 dropdowns total
         for i, category_data in enumerate(categories_to_process):
@@ -161,15 +192,14 @@ class JeopardyGameView(discord.ui.View):
                     category_name,
                     options,
                     f"Pick for {category_name}",
-                    row=i,
-                    disabled=disable_dropdowns # Pass the disabled state
+                    row=i
                 ))
 
     async def on_timeout(self):
         """Called when the view times out due to inactivity."""
         if self.game.board_message:
             # Edit the message to remove the interactive components and indicate timeout
-            await self.game.board_message.edit(content="Jeopardy game timed out due to inactivity.", view=None) # Removed embed
+            await self.game.board_message.edit(content="Jeopardy game timed out due to inactivity.", view=None)
         if self.game.channel.id in active_jeopardy_games:
             # Clean up the game state
             del active_jeopardy_games[self.game.channel.id]
@@ -935,9 +965,9 @@ async def serene_game_command(interaction: discord.Interaction, game_type: str):
             jeopardy_view.add_board_components() # This will add the dropdowns
             
             # Send the initial Jeopardy board with dropdowns
-            # Removed the embed from here as requested
             game_message = await interaction.channel.send(
-                content="Select a category and value from the dropdowns below!",
+                content=f"**{jeopardy_game.player.display_name}**'s Score: **${jeopardy_game.score}**\n\n"
+                        "Select a category and value from the dropdowns below!",
                 view=jeopardy_view
             )
             jeopardy_game.board_message = game_message # Store the message for updates
