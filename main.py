@@ -24,13 +24,15 @@ nltk.data.path.append(NLTK_DATA_DIR)
 # Added checks to prevent repeated downloads on subsequent runs.
 try:
     print(f"Checking for 'wordnet' in {NLTK_DATA_DIR}...")
-    nltk.data.find('corpora/wordnet', path=[NLTK_DATA_DIR])
+    # Removed 'path' argument as it's not supported in older NLTK versions and redundant with nltk.data.path.append
+    nltk.data.find('corpora/wordnet')
 except LookupError:
     print("Downloading WordNet...")
     nltk.download('wordnet', download_dir=NLTK_DATA_DIR)
 try:
     print(f"Checking for 'omw-1.4' in {NLTK_DATA_DIR}...")
-    nltk.data.find('corpora/omw-1.4', path=[NLTK_DATA_DIR])
+    # Removed 'path' argument as it's not supported in older NLTK versions and redundant with nltk.data.path.append
+    nltk.data.find('corpora/omw-1.4')
 except LookupError:
     print("Downloading OMW-1.4...")
     nltk.download('omw-1.4', download_dir=NLTK_DATA_DIR)
