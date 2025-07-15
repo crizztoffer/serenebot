@@ -1,4 +1,3 @@
 discord.py
 aiohttp
 nltk
-pattern
