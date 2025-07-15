@@ -65,8 +65,7 @@ class PickQuestionButton(discord.ui.Button):
     """A button to confirm the selection of a Jeopardy question."""
     def __init__(self):
         # The button is initially disabled until a question is selected via dropdown
-        # Removed row=4 to allow automatic placement on the next available row
-        super().__init__(style=discord.ButtonStyle.green, label="Pick Question", disabled=True) 
+        super().__init__(style=discord.ButtonStyle.green, label="Pick Question", disabled=True, row=1) # Explicitly set row to 1
 
     async def callback(self, interaction: discord.Interaction):
         """Handles the click on the 'Pick Question' button."""
@@ -141,22 +140,21 @@ class JeopardyGameView(discord.ui.View):
         """Dynamically adds dropdowns (selects) for categories and the 'Pick Question' button to the view."""
         self.clear_items() # Clear existing items before rebuilding the board
 
-        categories_to_display = []
+        categories_to_process = []
         if self.game.game_phase == "NORMAL_JEOPARDY_SELECTION":
-            # Limit to the first 5 categories for dropdown display to fit Discord's row limit
-            categories_to_display = self.game.board_data.get("normal_jeopardy", [])[:5] 
+            categories_to_process = self.game.board_data.get("normal_jeopardy", [])
         elif self.game.game_phase == "DOUBLE_JEOPARDY_SELECTION":
-            # Limit to the first 5 categories for dropdown display
-            categories_to_display = self.game.board_data.get("double_jeopardy", [])[:5]
+            categories_to_process = self.game.board_data.get("double_jeopardy", [])
         else:
             # No interactive components (dropdowns/buttons) for Final Jeopardy or other phases
             return
 
-        # Add a Select (dropdown) component for each category
-        # Discord allows up to 5 components per row.
-        # By limiting categories_to_display to 5, all dropdowns will fit on a single row (Row 0).
-        
-        for category_data in categories_to_display:
+        # Add up to 5 category dropdowns to the first row (row 0)
+        items_on_row_0 = 0
+        for category_data in categories_to_process:
+            if items_on_row_0 >= 5: # Ensure we only add a maximum of 5 dropdowns to row 0
+                break
+            
             category_name = category_data["category"]
             options = []
             # Populate options with available (unguessed) question values for this category
@@ -164,15 +162,15 @@ class JeopardyGameView(discord.ui.View):
                 if not q["guessed"]:
                     options.append(discord.SelectOption(label=f"${q['value']}", value=str(q['value'])))
             
-            # Only add a dropdown if there are available questions in the category
-            # If options is empty, it means all questions in this category are guessed, so we don't add its dropdown.
+            # Only add a dropdown if there are available questions in this category
             if options: 
                 self.add_item(CategoryValueSelect(category_name, options, f"Pick for {category_name}"))
+                items_on_row_0 += 1 # Increment counter for items on row 0
         
-        # Add the "Pick Question" button if there are any active dropdowns (meaning there are still questions to pick)
-        # and if the game is in a selection phase.
+        # Add the "Pick Question" button to row 1 IF there are any category selects
+        # This button is now explicitly on row 1, ensuring it doesn't conflict with row 0.
         if (self.game.game_phase == "NORMAL_JEOPARDY_SELECTION" or 
-            self.game.game_phase == "DOUBLE_JEOPARDY_SELECTION") and any(isinstance(item, CategoryValueSelect) for item in self.children):
+            self.game.game_phase == "DOUBLE_JEOPARDY_SELECTION") and items_on_row_0 > 0:
             self.add_item(PickQuestionButton())
 
     async def on_timeout(self):
@@ -1127,7 +1125,7 @@ async def serene_story_command(interaction: discord.Interaction):
         - "shit out a turd that flew out of their ass so fast, they [verb_past_tense]"
         - "busted a nut so hard, they [verb_past_tense]"
         - "burped so loud, they [verb_past_tense]"
-        - "rocketed right into their face—so hard that they [verb_past_tense]"
+        - "rocketd right into their face—so hard that they [verb_past_tense]"
         - "crossed over the great divide, gave Jesus a high five, and flew back down with such velocity, that they [verb_past_tense]"
         - "told such a bad joke that they [verb_past_tense]"
         - "whispered so quietly that they [verb_past_tense]"
