@@ -148,8 +148,9 @@ class CategoryValueSelect(discord.ui.Select):
             # --- Daily Double Wager Logic ---
             is_daily_double = question_data.get("double_jeopardy", False)
             
-            # Initialize wager_amount_to_use to a safe default before the try-except block
-            wager_amount_to_use = question_data['value'] # Default to question value for non-DD
+            # Initialize game.current_wager with the question's value by default
+            # It will be updated if it's a Daily Double and a valid wager is received
+            game.current_wager = question_data['value'] 
 
             if is_daily_double:
                 await interaction.followup.send(
@@ -157,7 +158,6 @@ class CategoryValueSelect(discord.ui.Select):
                     f"Your current score is **${game.score}**."
                 )
 
-                # Calculate max wager based on rules
                 max_wager = max(2000, game.score) if game.score >= 0 else 2000
                 
                 wager_prompt_message = await interaction.channel.send(
@@ -174,33 +174,30 @@ class CategoryValueSelect(discord.ui.Select):
 
                     if wager_input <= 0:
                         await interaction.channel.send("Your wager must be a positive amount. Defaulting to $500.", delete_after=5)
-                        wager_amount_to_use = 500
+                        game.current_wager = 500
                     elif wager_input > max_wager:
                         await interaction.channel.send(f"Your wager exceeds the maximum allowed (${max_wager}). Defaulting to max wager.", delete_after=5)
-                        wager_amount_to_use = max_wager
+                        game.current_wager = max_wager
                     else:
-                        wager_amount_to_use = wager_input
+                        game.current_wager = wager_input
                     
-                    # Delete the wager prompt and the user's wager message for cleaner chat
                     await wager_prompt_message.delete()
                     await wager_msg.delete()
 
                 except asyncio.TimeoutError:
                     await interaction.channel.send("Time's up! You didn't enter a wager. Defaulting to $500.", delete_after=5)
-                    wager_amount_to_use = 500
+                    game.current_wager = 500
                 except Exception as e:
                     print(f"Error getting wager: {e}")
                     await interaction.channel.send("An error occurred while getting your wager. Defaulting to $500.", delete_after=5)
-                    wager_amount_to_use = 500
-                
-                game.current_wager = wager_amount_to_use # Store wager in game state
+                    game.current_wager = 500
                 
                 # Now send the question for Daily Double, reflecting the wager
                 await interaction.followup.send(
                     f"You wagered **${game.current_wager}**.\n*For the Daily Double:*\n**{question_data['question']}**"
                 )
             else: # Not a Daily Double, proceed as before
-                game.current_wager = question_data['value'] # For non-daily doubles, wager is just the question value
+                # The wager is already set to question_data['value']
                 await interaction.followup.send(
                     f"*For ${question_data['value']}:*\n**{question_data['question']}**"
                 )
