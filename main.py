@@ -34,7 +34,8 @@ class CategoryValueSelect(discord.ui.Select):
             min_values=1,
             max_values=1,
             options=options,
-            custom_id=f"jeopardy_select_{category_name.replace(' ', '_').lower()}"
+            custom_id=f"jeopardy_select_{category_name.replace(' ', '_').lower()}",
+            row=0 # Explicitly set row to 0 for all category dropdowns
         )
         self.category_name = category_name # Store category name for later use
 
@@ -644,7 +645,8 @@ class TicTacToeButton(discord.ui.Button):
             )
             del active_tictactoe_games[interaction.channel.id] # End the game
         elif view._check_draw():
-            await interaction.edit_original_original_response(
+            # Corrected typo here: edit_original_original_response to edit_original_response
+            await interaction.edit_original_response(
                 content="It's a **draw!** 🤝",
                 embed=view._start_game_message(),
                 view=view._end_game()
