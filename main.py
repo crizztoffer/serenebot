@@ -1,17 +1,17 @@
 import os
+import random
+import urllib.parse
+
 import discord
 from discord.ext import commands
 from discord import app_commands
 import aiohttp
-import urllib.parse
 import nltk
-import random
+from nltk.corpus import wordnet as wn
 
-# Download required NLTK corpora
+# Download WordNet if not already downloaded
 nltk.download('wordnet')
 nltk.download('omw-1.4')
-
-from nltk.corpus import wordnet as wn
 
 # Define intents
 intents = discord.Intents.default()
@@ -20,6 +20,31 @@ intents.presences = True
 
 # Initialize the bot
 bot = commands.Bot(command_prefix='!', intents=intents)
+
+
+def get_simple_nouns(n=3):
+    nouns = set()
+    for synset in wn.all_synsets('n'):
+        name = synset.lemmas()[0].name()
+        # Filter: only alphabetic lowercase simple words
+        if name.isalpha() and name.islower():
+            nouns.add(name)
+        if len(nouns) >= 500:
+            break
+    return random.sample(list(nouns), n)
+
+
+def get_simple_verbs(n=2):
+    verbs = set()
+    for synset in wn.all_synsets('v'):
+        name = synset.lemmas()[0].name()
+        # Filter: only alphabetic lowercase simple words
+        if name.isalpha() and name.islower():
+            verbs.add(name)
+        if len(verbs) >= 500:
+            break
+    return random.sample(list(verbs), n)
+
 
 @bot.event
 async def on_ready():
@@ -31,7 +56,8 @@ async def on_ready():
     except Exception as e:
         print(f"Failed to sync commands: {e}")
 
-# --- Slash Command: /serene ---
+
+# --- Existing /serene command (unchanged) ---
 @bot.tree.command(name="serene", description="Interact with the Serene bot backend.")
 @app_commands.describe(text_input="Your message or question for Serene.")
 async def serene_command(interaction: discord.Interaction, text_input: str):
@@ -81,7 +107,8 @@ async def serene_command(interaction: discord.Interaction, text_input: str):
             f"An unexpected error occurred: {e}"
         )
 
-# --- Slash Command: /hail_serene ---
+
+# --- Existing /hail_serene command (unchanged) ---
 @bot.tree.command(name="hail_serene", description="Hail Serene!")
 async def hail_serene_command(interaction: discord.Interaction):
     await interaction.response.defer()
@@ -89,7 +116,7 @@ async def hail_serene_command(interaction: discord.Interaction):
     php_backend_url = "https://serenekeks.com/serene_bot.php"
     player_name = interaction.user.display_name
 
-    text_to_send = "hail serene"
+    text_to_send = "hail serene"  # Predefined text
     param_name = "hail"
 
     params = {
@@ -118,54 +145,58 @@ async def hail_serene_command(interaction: discord.Interaction):
             f"An unexpected error occurred: {e}"
         )
 
-# --- Slash Command: /serene_story ---
-@bot.tree.command(name="serene_story", description="Generates a random Serene story using nouns and past-tense verbs.")
+
+# --- NEW /serene_story command ---
+@bot.tree.command(name="serene_story", description="Generate a story from simple nouns and verbs.")
 async def serene_story_command(interaction: discord.Interaction):
     await interaction.response.defer()
 
     php_backend_url = "https://serenekeks.com/serene_bot_2.php"
+    player_name = interaction.user.display_name
+
+    # Get simple nouns and verbs
+    nouns = get_simple_nouns(3)
+    verbs = get_simple_verbs(2)
+
+    params = {
+        "n1": nouns[0],
+        "v1": verbs[0],
+        "n2": nouns[1],
+        "v2": verbs[1],
+        "n3": nouns[2],
+        "player": player_name,
+    }
+
+    encoded_params = urllib.parse.urlencode(params, quote_via=urllib.parse.quote_plus)
+    full_url = f"{php_backend_url}?{encoded_params}"
 
     try:
-        # Get random nouns
-        nouns = list({lemma.name().replace('_', ' ') for syn in wn.all_synsets('n') for lemma in syn.lemmas()})
-        random_nouns = random.sample(nouns, 3)
-
-        # Get random past-tense verbs
-        all_verbs = list({lemma.name().replace('_', ' ') for syn in wn.all_synsets('v') for lemma in syn.lemmas()})
-        irregular_past = ["ran", "sang", "ate", "drank", "wrote", "won", "fought", "felt", "slept", "spoke", "broke"]
-        past_verbs = []
-
-        while len(past_verbs) < 2:
-            verb = random.choice(all_verbs)
-            if verb.endswith("ed") or verb in irregular_past:
-                past_verbs.append(verb)
-
-        params = {
-            "n1": random_nouns[0],
-            "v1": past_verbs[0],
-            "n2": random_nouns[1],
-            "v2": past_verbs[1],
-            "n3": random_nouns[2]
-        }
-
-        encoded_params = urllib.parse.urlencode(params, quote_via=urllib.parse.quote_plus)
-        full_url = f"{php_backend_url}?{encoded_params}"
-
         async with aiohttp.ClientSession() as session:
             async with session.get(full_url) as response:
                 if response.status == 200:
-                    story = await response.text()
-                    await interaction.followup.send(f"**Serene tells a story:**\n{story}")
+                    php_response_text = await response.text()
+                    display_message = (
+                        f"**{player_name} asked for a story**\n"
+                        f"**Serene says:** {php_response_text}"
+                    )
+                    await interaction.followup.send(display_message)
                 else:
                     await interaction.followup.send(
                         f"Serene backend returned an error: HTTP Status {response.status}"
                     )
-
+    except aiohttp.ClientError as e:
+        await interaction.followup.send(
+            f"Could not connect to the Serene backend. Error: {e}"
+        )
     except Exception as e:
-        await interaction.followup.send(f"An error occurred while generating the story: {e}")
+        await interaction.followup.send(
+            f"An unexpected error occurred: {e}"
+        )
 
-# --- Run Bot ---
+
+# Load environment variables for the token
 BOT_TOKEN = os.getenv('BOT_TOKEN')
+
 if BOT_TOKEN is None:
     print("Error: BOT_TOKEN environment variable not set.")
 else:
