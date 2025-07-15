@@ -249,8 +249,8 @@ async def serene_story_command(interaction: discord.Interaction):
         # Prompt for the Gemini API to get contextually appropriate words
         # The prompt is significantly refined to ensure variety and contextual cohesion
         gemini_prompt = """
-        Generate 3 distinct, imaginative, and often absurd or whimsical nouns that can function as characters or objects in a bizarre story.
-        Also, generate 2 distinct, action-oriented verbs in their BASE/INFINITIVE form. These verbs must be suitable for both an infinitive context (e.g., "loved to [verb]") and a simple past tense context (e.g., "they [verb_past_tense]").
+        Generate 3 distinct, imaginative, and often absurd or whimsical nouns. These nouns should be simple, common, and in **lowercase**.
+        Also, generate 2 distinct, action-oriented verbs in their BASE/INFINITIVE form. These verbs must be simple, common, and in **lowercase**. They must be suitable for both an infinitive context (e.g., "loved to [verb]") and a simple past tense context (e.g., "they [verb_past_tense]").
         Crucially, consider the following specific PHP sentence fragments where these verbs will be inserted. Ensure the BASE verb makes sense in these contexts, even when later conjugated to past tense:
 
         **For Verb 1 (infinitive - will be used after phrases like 'loved to'):**
@@ -288,7 +288,7 @@ async def serene_story_command(interaction: discord.Interaction):
         """
 
         chat_history = []
-        chat_history.append({"role": "user", "parts": [{"text": gemini_prompt}]}) # Corrected .push() to .append()
+        chat_history.append({"role": "user", "parts": [{"text": gemini_prompt}]})
         
         # Define the response schema for structured JSON output from Gemini
         payload = {
@@ -341,8 +341,9 @@ async def serene_story_command(interaction: discord.Interaction):
                             generated_words = json.loads(generated_json_str)
                             
                             # Extract nouns and verbs, using fallbacks if keys are missing
-                            nouns = generated_words.get("nouns", ["thing", "place", "event"])
-                            verbs_infinitive = generated_words.get("verbs", ["do", "happen"]) 
+                            # Convert to lowercase explicitly as a safeguard
+                            nouns = [n.lower() for n in generated_words.get("nouns", ["thing", "place", "event"])]
+                            verbs_infinitive = [v.lower() for v in generated_words.get("verbs", ["do", "happen"])]
                             
                             # Ensure we have exactly 3 nouns and 2 verbs, using fallbacks if needed
                             nouns = (nouns + ["thing", "place", "event"])[:3]
