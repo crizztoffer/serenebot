@@ -266,7 +266,7 @@ class NewJeopardyGame:
 
 class TicTacToeButton(discord.ui.Button):
     """Represents a single square on the Tic-Tac-Toe board."""
-    def __init__(self, row: int, col: int, player_mark: str = " "): # Changed from "⬜" to " "
+    def __init__(self, row: int, col: int, player_mark: str = "⬜"): # Changed from " " to "⬜"
         super().__init__(style=discord.ButtonStyle.secondary, label=player_mark, row=row)
         self.row = row
         self.col = col
@@ -352,7 +352,7 @@ class TicTacToeView(discord.ui.View):
         for row in range(3):
             for col in range(3):
                 # Pass " " as the initial label for the button
-                self.add_item(TicTacToeButton(row, col, player_mark=" "))
+                self.add_item(TicTacToeButton(row, col, player_mark="⬜")) # Changed here
 
     def _update_board_display(self):
         """Updates the labels and styles of the buttons to reflect the current board state.
