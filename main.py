@@ -579,7 +579,7 @@ class TicTacToeButton(discord.ui.Button):
             del active_tictactoe_games[interaction.channel_id] # End the game
         elif view._check_draw():
             await interaction.edit_original_response(
-                content="It's a **draw!** �",
+                content="It's a **draw!** 🤝",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -1115,9 +1115,8 @@ async def serene_story_command(interaction: discord.Interaction):
         - "ate a dong so long that they [verb_past_tense]"
         - "spun around so fast that they [verb_past_tense]"
         "vomitted so loudly that they [verb_past_tense]"
-        "sand-blast": "sand-blasted", # "sand-blasted out a power-shart"
-        "slip": "slipped", # "slipped off the roof"
         "sand-blasted out a power-shart so strong, that they [verb_past_tense]"
+        "slipped off the roof above—and with a thump—they [verb_past_tense]"
 
         Avoid verbs that are passive, imply a state of being, or require complex grammatical structures (e.g., phrasal verbs that depend heavily on prepositions) to make sense in these direct contexts. Focus on verbs that are direct and complete actions.
 
@@ -1332,4 +1331,3 @@ if BOT_TOKEN is None:
     print("Error: BOT_TOKEN environment variable not set.")
 else:
     bot.run(BOT_TOKEN)
-�
