@@ -5,13 +5,13 @@ from discord import app_commands
 import aiohttp
 import urllib.parse
 import nltk
-from nltk.corpus import wordnet as wn
-from pattern.en import conjugate, PAST
 import random
 
-# Download WordNet data
+# Download required NLTK corpora
 nltk.download('wordnet')
 nltk.download('omw-1.4')
+
+from nltk.corpus import wordnet as wn
 
 # Define intents
 intents = discord.Intents.default()
@@ -118,7 +118,7 @@ async def hail_serene_command(interaction: discord.Interaction):
             f"An unexpected error occurred: {e}"
         )
 
-# --- New Slash Command: /serene_story ---
+# --- Slash Command: /serene_story ---
 @bot.tree.command(name="serene_story", description="Generates a random Serene story using nouns and past-tense verbs.")
 async def serene_story_command(interaction: discord.Interaction):
     await interaction.response.defer()
@@ -126,32 +126,31 @@ async def serene_story_command(interaction: discord.Interaction):
     php_backend_url = "https://serenekeks.com/serene_bot_2.php"
 
     try:
-        # Get 3 random nouns
+        # Get random nouns
         nouns = list({lemma.name().replace('_', ' ') for syn in wn.all_synsets('n') for lemma in syn.lemmas()})
         random_nouns = random.sample(nouns, 3)
 
-        # Get 2 random past-tense verbs
-        verbs = list({lemma.name() for syn in wn.all_synsets('v') for lemma in syn.lemmas()})
-        past_tense_verbs = []
-        while len(past_tense_verbs) < 2:
-            base = random.choice(verbs)
-            past = conjugate(base, tense=PAST)
-            if past:
-                past_tense_verbs.append(past)
+        # Get random past-tense verbs
+        all_verbs = list({lemma.name().replace('_', ' ') for syn in wn.all_synsets('v') for lemma in syn.lemmas()})
+        irregular_past = ["ran", "sang", "ate", "drank", "wrote", "won", "fought", "felt", "slept", "spoke", "broke"]
+        past_verbs = []
 
-        # Build parameters
+        while len(past_verbs) < 2:
+            verb = random.choice(all_verbs)
+            if verb.endswith("ed") or verb in irregular_past:
+                past_verbs.append(verb)
+
         params = {
             "n1": random_nouns[0],
-            "v1": past_tense_verbs[0],
+            "v1": past_verbs[0],
             "n2": random_nouns[1],
-            "v2": past_tense_verbs[1],
+            "v2": past_verbs[1],
             "n3": random_nouns[2]
         }
 
         encoded_params = urllib.parse.urlencode(params, quote_via=urllib.parse.quote_plus)
         full_url = f"{php_backend_url}?{encoded_params}"
 
-        # Request story from backend
         async with aiohttp.ClientSession() as session:
             async with session.get(full_url) as response:
                 if response.status == 200:
@@ -165,9 +164,8 @@ async def serene_story_command(interaction: discord.Interaction):
     except Exception as e:
         await interaction.followup.send(f"An error occurred while generating the story: {e}")
 
-# Load environment variable for bot token
+# --- Run Bot ---
 BOT_TOKEN = os.getenv('BOT_TOKEN')
-
 if BOT_TOKEN is None:
     print("Error: BOT_TOKEN environment variable not set.")
 else:
