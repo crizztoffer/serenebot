@@ -194,8 +194,9 @@ class CategoryValueSelect(discord.ui.Select):
                 game.current_wager = wager_amount # Store wager in game state
                 
                 # Now send the question for Daily Double, reflecting the wager
+                # Corrected: Display the wagered amount and "For the Daily Double"
                 await interaction.followup.send(
-                    f"You wagered **${wager_amount}**.\n*For ${question_data['value']}:*\n**{question_data['question']}**"
+                    f"You wagered **${game.current_wager}**.\n*For the Daily Double:*\n**{question_data['question']}**"
                 )
             else: # Not a Daily Double, proceed as before
                 game.current_wager = question_data['value'] # For non-daily doubles, wager is just the question value
@@ -681,7 +682,7 @@ class TicTacToeView(discord.ui.View):
             await self.message.edit(content="Game timed out due to inactivity.", view=None, embed=None)
         if self.message and self.message.channel.id in active_tictactoe_games:
             del active_tictactoe_games[self.message.channel.id]
-        print(f"Tic-Tac-Toe game in channel {self.message.channel.id} timed out.")
+        print(f"Tic-Tac-Toe game in channel {self.message.channel_id} timed out.")
 
 
 # --- Bot Events ---
