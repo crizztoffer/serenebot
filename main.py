@@ -147,6 +147,50 @@ async def hail_serene_command(interaction: discord.Interaction):
         )
 
 
+# --- NEW /serene_roast command ---
+@bot.tree.command(name="serene_roast", description="Get roasted by Serene!")
+async def serene_roast_command(interaction: discord.Interaction):
+    """
+    Handles the /serene_roast slash command.
+    Sends a "roast" message to the backend and displays the response.
+    """
+    await interaction.response.defer() # Acknowledge the interaction
+
+    php_backend_url = "https://serenekeks.com/serene_bot.php"
+    player_name = interaction.user.display_name
+
+    text_to_send = "roast"  # Predefined text for this command
+    param_name = "roast" # Parameter name for the PHP backend
+
+    # Prepare parameters for the PHP backend
+    params = {
+        param_name: text_to_send,
+        "player": player_name
+    }
+    encoded_params = urllib.parse.urlencode(params, quote_via=urllib.parse.quote_plus)
+    full_url = f"{php_backend_url}?{encoded_params}"
+
+    try:
+        # Make an asynchronous HTTP GET request
+        async with aiohttp.ClientSession() as session:
+            async with session.get(full_url) as response:
+                if response.status == 200:
+                    php_response_text = await response.text()
+                    await interaction.followup.send(php_response_text)
+                else:
+                    await interaction.followup.send(
+                        f"Serene backend returned an error: HTTP Status {response.status}"
+                    )
+    except aiohttp.ClientError as e:
+        await interaction.followup.send(
+            f"Could not connect to the Serene backend. Error: {e}"
+        )
+    except Exception as e:
+        await interaction.followup.send(
+            f"An unexpected error occurred: {e}"
+        )
+
+
 # Helper function to convert a verb to its simple past tense
 def to_past_tense(verb):
     """
