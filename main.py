@@ -122,7 +122,7 @@ class CategoryValueSelect(discord.ui.Select):
             else:
                 print("GEMINI_API_KEY not set. Cannot determine dynamic prefixes. Using default.")
 
-            # Send the question publicly (without the prefix hint)
+            # Send the question publicly (without any prefix hint)
             await interaction.followup.send(
                 f"*For ${question_data['value']}:*\n**{question_data['question']}**"
             )
@@ -145,20 +145,42 @@ class CategoryValueSelect(discord.ui.Select):
                 correct_answer_lower = question_data['answer'].lower()
                 correct_answer_words = correct_answer_lower.split()
 
+                # Get words from the question that are also in the correct answer
+                question_text_lower = question_data['question'].lower()
+                question_words_set = set(question_text_lower.split())
+
+                # Words from the correct answer that are also present in the question.
+                # These words are "contextual noise" and should not be sufficient on their own.
+                noisy_correct_words = set(word for word in correct_answer_words if word in question_words_set)
+
                 is_correct = False
-                # First, check for exact match (after stripping prefixes from user's answer)
+                processed_user_answer_words = set(processed_user_answer.split())
+                correct_answer_words_set = set(correct_answer_lower.split())
+
+                # 1. Exact match (after stripping prefix) is always correct.
                 if processed_user_answer == correct_answer_lower:
                     is_correct = True
-                # If not an exact match, and the correct answer has multiple words (likely a name)
-                elif len(correct_answer_words) > 1:
-                    # Check if any word from the correct answer is present in the user's processed answer
-                    # This handles cases like "George Washington" where "washington" might be enough
-                    if any(word in processed_user_answer for word in correct_answer_words):
-                        is_correct = True
-                # Special case for single-word answers: allow partial match if it's the full word
-                elif len(correct_answer_words) == 1 and processed_user_answer == correct_answer_lower: # Ensure exact match for single word
-                    is_correct = True
+                # 2. If it's a multi-word answer (e.g., a name)
+                elif len(correct_answer_words_set) > 1:
+                    # Find common words between user's answer and correct answer
+                    matched_words = processed_user_answer_words.intersection(correct_answer_words_set)
 
+                    if not matched_words: # No common words at all
+                        is_correct = False
+                    elif len(matched_words) > 1: # If multiple words matched, it's correct (e.g., "Apollo 13")
+                        is_correct = True
+                    else: # Only one word matched
+                        single_matched_word = list(matched_words)[0]
+                        if single_matched_word in noisy_correct_words:
+                            # If the only matched word is a noisy one, it's incorrect.
+                            is_correct = False
+                        else:
+                            # If the only matched word is NOT noisy, it's correct. (e.g., "13" for "Apollo 13")
+                            is_correct = True
+                # 3. If it's a single-word answer, it must be an exact match (after stripping prefix).
+                elif len(correct_answer_words_set) == 1:
+                    if processed_user_answer == correct_answer_lower:
+                        is_correct = True
 
                 # Compare the processed user answer with the correct answer
                 if is_correct:
@@ -534,7 +556,7 @@ class TicTacToeView(discord.ui.View):
             if self._check_winner():
                 winner = self.players[self.current_player].display_name
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner} wins!** 🎉",
+                    content=f"🎉 **{winner} wins!** �",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
