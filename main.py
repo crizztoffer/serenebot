@@ -192,15 +192,24 @@ class CategoryValueSelect(discord.ui.Select):
                         game.current_wager = wager_input
                         print(f"DEBUG: Wager set to user input: {game.current_wager}") # DEBUG
                     
-                    await wager_prompt_message.delete()
-                    await wager_msg.delete()
+                    # Attempt to delete messages, but handle potential errors gracefully
+                    try:
+                        await wager_prompt_message.delete()
+                        await wager_msg.delete()
+                    except discord.errors.Forbidden:
+                        print("WARNING: Missing permissions to delete wager messages. Please ensure the bot has 'Manage Messages' permission.")
+                        # Do not reset wager if deletion fails due to permissions
+                    except Exception as delete_e:
+                        print(f"WARNING: An unexpected error occurred during message deletion: {delete_e}")
+                        # Do not reset wager for other deletion errors either
 
                 except asyncio.TimeoutError:
                     print("DEBUG: Wager input timed out.") # DEBUG
                     await interaction.channel.send("Time's up! You didn't enter a wager. Defaulting to $500.", delete_after=5)
                     game.current_wager = 500
                 except Exception as e:
-                    print(f"DEBUG: Error getting wager: {e}") # DEBUG
+                    # This block now only catches errors *during bot.wait_for* or initial processing of wager_input
+                    print(f"DEBUG: Error getting wager (before deletion attempt): {e}") # DEBUG
                     await interaction.channel.send("An error occurred while getting your wager. Defaulting to $500.", delete_after=5)
                     game.current_wager = 500
                 
