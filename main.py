@@ -313,7 +313,7 @@ class TicTacToeButton(discord.ui.Button):
             del active_tictactoe_games[interaction.channel.id] # End the game
         elif view._check_draw():
             await interaction.edit_original_response(
-                content="It's a **draw!** 🤝",
+                content="It's a **draw!** �",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -325,13 +325,13 @@ class TicTacToeButton(discord.ui.Button):
 
             # Update message for next turn
             await interaction.edit_original_response(
-                content=f"It's **{next_player_obj.display_name}**'s turn ({view.current_player})",
+                content=f"It's **{next_player_obj.display_name}**'s turn ({self.current_player})", # Fixed: view.current_player -> self.current_player
                 embed=view._start_game_message(),
                 view=view
             )
 
             # If it's the bot's turn, make its move
-            if view.players[view.current_player].id == bot.user.id:
+            if view.players[self.current_player].id == bot.user.id: # Fixed: view.current_player -> self.current_player
                 await asyncio.sleep(1) # Small delay for natural feel
                 await view._bot_make_move(interaction)
 
@@ -505,7 +505,7 @@ class TicTacToeView(discord.ui.View):
                 self.current_player = "X"
                 next_player_obj = self.players[self.current_player]
                 await interaction.edit_original_response(
-                    content=f"It's **{next_player_obj.display_name}**'s turn ({view.current_player})",
+                    content=f"It's **{next_player_obj.display_name}**'s turn ({self.current_player})", # Fixed: view.current_player -> self.current_player
                     embed=self._start_game_message(),
                     view=self
                 )
