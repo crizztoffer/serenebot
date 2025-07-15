@@ -138,8 +138,7 @@ class JeopardyGameView(discord.ui.View):
 
     def add_buttons_from_board(self):
         """Dynamically adds dropdowns (selects) for categories and the 'Pick Question' button to the view."""
-        # Create a new list of items for the view
-        new_items = []
+        self.clear_items() # Clear existing items before rebuilding the board
 
         categories_to_process = []
         if self.game.game_phase == "NORMAL_JEOPARDY_SELECTION":
@@ -149,11 +148,12 @@ class JeopardyGameView(discord.ui.View):
             # Limit to the first 5 categories for dropdown display
             categories_to_process = self.game.board_data.get("double_jeopardy", [])[:5]
         else:
-            # No interactive components (dropdowns/buttons) for Final Jeopardy or other phases
-            self.children = [] # Ensure no items are present
+            # For other phases (QUESTION_ACTIVE, FINAL_JEOPARDY_WAGER, FINAL_JEOPARDY_ACTIVE, GAME_OVER),
+            # no interactive components should be on the board message.
             return
 
-        # Add category dropdowns to the new_items list. Each will have row=0.
+        # Add category dropdowns. Each will have row=0.
+        dropdown_added = False
         for category_data in categories_to_process:
             category_name = category_data["category"]
             options = []
@@ -161,17 +161,14 @@ class JeopardyGameView(discord.ui.View):
                 if not q["guessed"]:
                     options.append(discord.SelectOption(label=f"${q['value']}", value=str(q['value'])))
             
-            if options:
-                new_items.append(CategoryValueSelect(category_name, options, f"Pick for {category_name}"))
+            if options: # Only add a dropdown if there are available (unguessed) questions in the category
+                self.add_item(CategoryValueSelect(category_name, options, f"Pick for {category_name}"))
+                dropdown_added = True
         
-        # Add the "Pick Question" button to the new_items list if there are any category selects.
-        # This button is explicitly on row=1.
-        if (self.game.game_phase == "NORMAL_JEOPARDY_SELECTION" or 
-            self.game.game_phase == "DOUBLE_JEOPARDY_SELECTION") and len(new_items) > 0: # Check if any dropdowns were added
-            new_items.append(PickQuestionButton())
-
-        # Replace the view's children with the newly constructed list
-        self.children = new_items
+        # Add the "Pick Question" button to row=1 if dropdowns were added and it's a selection phase
+        if dropdown_added and (self.game.game_phase == "NORMAL_JEOPARDY_SELECTION" or 
+                               self.game.game_phase == "DOUBLE_JEOPARDY_SELECTION"):
+            self.add_item(PickQuestionButton())
 
     async def on_timeout(self):
         """Called when the view times out due to inactivity."""
@@ -643,7 +640,6 @@ class TicTacToeButton(discord.ui.Button):
             )
             del active_tictactoe_games[interaction.channel.id] # End the game
         elif view._check_draw():
-            # Corrected typo here: edit_original_original_response to edit_original_response
             await interaction.edit_original_response(
                 content="It's a **draw!** 🤝",
                 embed=view._start_game_message(),
