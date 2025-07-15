@@ -6,13 +6,14 @@ import asyncio # Import asyncio for sleep
 
 import discord
 from discord.ext import commands
-from discord import app_commands, ui # ui is still needed for TicTacToeView and TicTacToeButton
+from discord import app_commands, ui
 import aiohttp
 
 # Define intents
 intents = discord.Intents.default()
 intents.members = True
 intents.presences = True
+intents.message_content = True # Needed to read user answers for Jeopardy
 
 # Initialize the bot
 bot = commands.Bot(command_prefix='!', intents=intents)
@@ -20,9 +21,379 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 # --- Game State Storage ---
 # Stores active Tic-Tac-Toe games. Key: channel_id, Value: TicTacToeView instance
 active_tictactoe_games = {}
+# Stores active Jeopardy games. Key: channel_id, Value: JeopardyGame instance
+active_jeopardy_games = {}
+
+# --- Jeopardy Game Classes ---
+
+class JeopardyGame:
+    """Manages the state and logic for a single Jeopardy game."""
+    def __init__(self, channel_id: int, player: discord.User):
+        self.channel_id = channel_id
+        self.player = player
+        self.score = 0
+        self.board_data = None # Will store the fetched JSON data
+        self.current_question = None # Stores the question currently being answered
+        self.question_message = None # Stores the Discord message for the current question
+        self.timer_task = None # asyncio task for the countdown timer
+        self.answer_lock = asyncio.Lock() # To prevent multiple answers at once
+        self.game_over = False
+
+        # Fetch Jeopardy data from the PHP backend
+        # In a real application, you might cache this or handle errors more robustly
+        self.jeopardy_data_url = "https://serenekeks.com/serene_bot_games.php"
+        
+    async def load_board_data(self):
+        """Fetches Jeopardy questions from the backend."""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(self.jeopardy_data_url) as response:
+                    if response.status == 200:
+                        self.board_data = await response.json()
+                        # Initialize 'guessed' status for all questions
+                        for category_type in ["normal_jeopardy", "double_jeopardy"]:
+                            if category_type in self.board_data:
+                                for category in self.board_data[category_type]:
+                                    for question_data in category["questions"]:
+                                        question_data["guessed"] = False
+                        if "final_jeopardy" in self.board_data:
+                            self.board_data["final_jeopardy"]["guessed"] = False
+                    else:
+                        print(f"Error fetching Jeopardy data: HTTP Status {response.status}")
+                        self.board_data = None
+        except Exception as e:
+            print(f"Error loading Jeopardy data: {e}")
+            self.board_data = None
+
+    def _get_board_display_embed(self) -> discord.Embed:
+        """Creates an embed to display the current Jeopardy board."""
+        if not self.board_data:
+            return discord.Embed(title="Jeopardy Board", description="Error loading game data.", color=discord.Color.red())
+
+        embed = discord.Embed(
+            title="Jeopardy Board",
+            description=f"Player: **{self.player.display_name}** | Score: **${self.score}**\n\n"
+                        "Use `/jeopardy_select category:\"Category Name\" value:Value` to pick a question.\n"
+                        "Example: `/jeopardy_select category:\"PRESIDENTIAL INAUGURATIONS\" value:200`",
+            color=discord.Color.gold()
+        )
+
+        # Normal Jeopardy categories
+        if "normal_jeopardy" in self.board_data:
+            for category in self.board_data["normal_jeopardy"]:
+                category_name = category["category"]
+                questions_display = []
+                for q in category["questions"]:
+                    if q["guessed"]:
+                        questions_display.append(f"~~${q['value']}~~")
+                    else:
+                        questions_display.append(f"${q['value']}")
+                embed.add_field(name=category_name, value="\n".join(questions_display), inline=True)
+        
+        # Add a blank field for spacing if needed (Discord embeds display 3 fields per row)
+        # This can make the layout cleaner if you have a number of categories not divisible by 3
+        if len(embed.fields) % 3 == 1:
+            embed.add_field(name="\u200b", value="\u200b", inline=True)
+            embed.add_field(name="\u200b", value="\u200b", inline=True)
+        elif len(embed.fields) % 3 == 2:
+            embed.add_field(name="\u200b", value="\u200b", inline=True)
+
+        # Double Jeopardy categories (if any) - similar display
+        if "double_jeopardy" in self.board_data:
+            embed.add_field(name="\u200b\n__Double Jeopardy__", value="\u200b", inline=False) # Separator
+            for category in self.board_data["double_jeopardy"]:
+                category_name = category["category"]
+                questions_display = []
+                for q in category["questions"]:
+                    if q["guessed"]:
+                        questions_display.append(f"~~${q['value']}~~")
+                    else:
+                        questions_display.append(f"${q['value']}")
+                embed.add_field(name=category_name, value="\n".join(questions_display), inline=True)
+        
+        if len(embed.fields) % 3 == 1:
+            embed.add_field(name="\u200b", value="\u200b", inline=True)
+            embed.add_field(name="\u200b", value="\u200b", inline=True)
+        elif len(embed.fields) % 3 == 2:
+            embed.add_field(name="\u200b", value="\u200b", inline=True)
+
+        return embed
+
+    def _find_question(self, category_name: str, value: int):
+        """Finds a question by category and value, returning its data and type."""
+        # Check normal jeopardy
+        if "normal_jeopardy" in self.board_data:
+            for category in self.board_data["normal_jeopardy"]:
+                if category["category"].lower() == category_name.lower():
+                    for q in category["questions"]:
+                        if q["value"] == value and not q["guessed"]:
+                            return q, "normal"
+        
+        # Check double jeopardy
+        if "double_jeopardy" in self.board_data:
+            for category in self.board_data["double_jeopardy"]:
+                if category["category"].lower() == category_name.lower():
+                    for q in category["questions"]:
+                        if q["value"] == value and not q["guessed"]:
+                            return q, "double"
+        return None, None
+
+    def _normalize_answer(self, answer_text: str) -> str:
+        """Normalizes an answer string for comparison."""
+        # Convert to lowercase
+        normalized = answer_text.lower()
+        # Remove common Jeopardy prefixes
+        prefixes = ["what is ", "who is ", "where is ", "when is ", "what are ", "who are ", "where are ", "when are "]
+        for prefix in prefixes:
+            if normalized.startswith(prefix):
+                normalized = normalized[len(prefix):]
+                break # Only remove one prefix
+
+        # Remove punctuation (keep spaces)
+        normalized = ''.join(char for char in normalized if char.isalnum() or char.isspace())
+        # Remove extra spaces and strip leading/trailing whitespace
+        normalized = ' '.join(normalized.split()).strip()
+        return normalized
+
+    async def present_question(self, interaction: discord.Interaction, question_data: dict):
+        """Presents the question to the user and starts the timer."""
+        self.current_question = question_data
+        
+        # Disable all buttons on the board temporarily while a question is active
+        # This is important to prevent users from clicking other questions
+        # while one is being answered.
+        # We need to get the message the board is on and edit it.
+        if self.question_message: # This refers to the main board message
+            await self.question_message.edit(view=None) # Remove buttons from board
+
+        question_embed = discord.Embed(
+            title=f"Category: {question_data['category']} for ${question_data['value']}",
+            description=f"**Question:** {question_data['question']}\n\n"
+                        f"You have **{question_data['seconds']}** seconds to answer. "
+                        "Type your answer in the chat, starting with 'what is', 'who is', 'what are', etc.",
+            color=discord.Color.blue()
+        )
+        self.question_message = await interaction.channel.send(embed=question_embed)
+
+        # Start the timer
+        self.timer_task = bot.loop.create_task(
+            self._question_timer(interaction.channel, question_data['seconds'], question_data['value'])
+        )
+
+    async def _question_timer(self, channel: discord.TextChannel, seconds: int, value: int):
+        """Countdown timer for a question."""
+        try:
+            await asyncio.sleep(seconds)
+            
+            # If the answer lock is still held, it means no answer was received in time
+            async with self.answer_lock:
+                if self.current_question and not self.current_question["guessed"]:
+                    self.current_question["guessed"] = True
+                    self.score -= value
+                    await channel.send(
+                        f"Time's up! The correct answer was **{self.current_question['answer']}**. "
+                        f"You lost ${value}. Your score is now **${self.score}**."
+                    )
+                    self.current_question = None # Clear current question
+                    await self.update_board_message() # Refresh board display
+        except asyncio.CancelledError:
+            pass # Timer was cancelled because an answer was received
+
+    async def handle_answer(self, interaction: discord.Interaction, user_answer: str):
+        """Handles a user's attempt to answer a question."""
+        async with self.answer_lock: # Acquire lock to ensure only one answer is processed
+            if not self.current_question:
+                await interaction.response.send_message("There is no active question right now.", ephemeral=True)
+                return
+
+            # Ensure it's the player who started the game answering
+            if interaction.user.id != self.player.id:
+                await interaction.response.send_message("You are not the active player for this Jeopardy game.", ephemeral=True)
+                return
+
+            correct_answer = self.current_question["answer"]
+            value = self.current_question["value"]
+            
+            normalized_user_answer = self._normalize_answer(user_answer)
+            normalized_correct_answer = self._normalize_answer(correct_answer)
+
+            if normalized_user_answer == normalized_correct_answer:
+                self.score += value
+                response_content = f"That's correct! You gained ${value}. Your score is now **${self.score}**."
+            else:
+                self.score -= value
+                response_content = (
+                    f"That's incorrect. The correct answer was **{correct_answer}**. "
+                    f"You lost ${value}. Your score is now **${self.score}**."
+                )
+            
+            self.current_question["guessed"] = True # Mark question as guessed
+            self.current_question = None # Clear active question
+            
+            # Cancel the timer if it's still running
+            if self.timer_task and not self.timer_task.done():
+                self.timer_task.cancel()
+            
+            await interaction.response.send_message(response_content, ephemeral=False) # Send public response
+            await self.update_board_message() # Refresh board display
+
+            if self._is_game_over():
+                await interaction.channel.send(
+                    f"The Jeopardy game has ended! Your final score is **${self.score}**."
+                )
+                del active_jeopardy_games[self.channel_id]
+                self.game_over = True # Set game over flag
+
+    async def update_board_message(self):
+        """Updates the main board message with the current state."""
+        if self.question_message: # This is the message that holds the board
+            # Re-add the view with updated button states
+            # We need to create a new view instance to reflect disabled buttons
+            updated_view = discord.ui.View(timeout=300)
+            # Iterate through all questions and add buttons for un-guessed ones
+            for category_type in ["normal_jeopardy", "double_jeopardy"]:
+                if category_type in self.board_data:
+                    for category in self.board_data[category_type]:
+                        for q in category["questions"]:
+                            if not q["guessed"]:
+                                # Create a dummy button to represent the category/value for selection
+                                # This button won't be interactive on its own, but will be used to show availability
+                                # For actual selection, we rely on the /jeopardy_select command.
+                                # Discord buttons are limited to 5 rows, so we cannot represent the full board with buttons.
+                                # We will rely on the embed for display and slash commands for selection.
+                                pass # No buttons for selection on the main board message
+
+            # The board is primarily displayed via embed, not interactive buttons for selection.
+            # So, we just update the embed.
+            await self.question_message.edit(embed=self._get_board_display_embed(), view=None) # No view for board
+
+    def _is_game_over(self) -> bool:
+        """Checks if all questions have been guessed."""
+        for category_type in ["normal_jeopardy", "double_jeopardy"]:
+            if category_type in self.board_data:
+                for category in self.board_data[category_type]:
+                    for q in category["questions"]:
+                        if not q["guessed"]:
+                            return False # Found an unguessed question
+        # If all normal and double jeopardy questions are guessed, then it's Final Jeopardy or game over
+        if "final_jeopardy" in self.board_data and not self.board_data["final_jeopardy"]["guessed"]:
+            # Game is not over, it's time for Final Jeopardy
+            return False
+        return True # All questions (including Final Jeopardy if present) are guessed
+
+    async def start_final_jeopardy(self, interaction: discord.Interaction):
+        """Initiates the Final Jeopardy round."""
+        final_jeopardy_data = self.board_data.get("final_jeopardy")
+        if not final_jeopardy_data or final_jeopardy_data["guessed"]:
+            await interaction.channel.send("Final Jeopardy is not available or already played.")
+            return
+
+        self.current_question = final_jeopardy_data
+        
+        # Prompt for wager
+        wager_message = await interaction.channel.send(
+            f"It's **Final Jeopardy!** Your current score is **${self.score}**. "
+            "Please enter your wager using `/jeopardy_wager amount:VALUE`."
+            f"You can wager up to ${max(self.score, 0)}."
+        )
+        # Store wager message to edit/delete later if needed
+        self.wager_message = wager_message
+
+    async def handle_wager(self, interaction: discord.Interaction, wager: int):
+        """Handles the user's wager for Final Jeopardy."""
+        if not self.current_question or self.current_question.get("category") != "RIVERS": # Assuming "RIVERS" is Final Jeopardy category
+            await interaction.response.send_message("It's not time to wager for Final Jeopardy.", ephemeral=True)
+            return
+
+        if interaction.user.id != self.player.id:
+            await interaction.response.send_message("You are not the active player for this Jeopardy game.", ephemeral=True)
+            return
+
+        max_wager = max(self.score, 0)
+        if not (0 <= wager <= max_wager):
+            await interaction.response.send_message(
+                f"Invalid wager. You must wager between $0 and ${max_wager}.",
+                ephemeral=True
+            )
+            return
+
+        self.final_jeopardy_wager = wager
+        await interaction.response.send_message(f"You have wagered **${wager}** for Final Jeopardy.", ephemeral=True)
+
+        # Now present the Final Jeopardy question
+        question_embed = discord.Embed(
+            title=f"Final Jeopardy: {self.current_question['category']}",
+            description=f"**Question:** {self.current_question['question']}\n\n"
+                        f"You have **{self.current_question['seconds']}** seconds to answer. "
+                        "Type your answer in the chat, starting with 'what is', 'who is', 'what are', etc.",
+            color=discord.Color.purple()
+        )
+        self.question_message = await interaction.channel.send(embed=question_embed)
+
+        # Start the Final Jeopardy timer
+        self.timer_task = bot.loop.create_task(
+            self._final_jeopardy_timer(interaction.channel, self.current_question['seconds'])
+        )
+
+    async def _final_jeopardy_timer(self, channel: discord.TextChannel, seconds: int):
+        """Countdown timer for Final Jeopardy."""
+        try:
+            await asyncio.sleep(seconds)
+            
+            async with self.answer_lock:
+                if self.current_question and not self.current_question["guessed"]:
+                    self.current_question["guessed"] = True
+                    # No score change on timeout for Final Jeopardy, just reveal answer
+                    await channel.send(
+                        f"Time's up for Final Jeopardy! The correct answer was **{self.current_question['answer']}**."
+                    )
+                    self.current_question = None
+                    self.game_over = True
+                    del active_jeopardy_games[self.channel_id]
+        except asyncio.CancelledError:
+            pass # Timer was cancelled because an answer was received
+
+    async def handle_final_jeopardy_answer(self, interaction: discord.Interaction, user_answer: str):
+        """Handles user's answer for Final Jeopardy."""
+        async with self.answer_lock:
+            if not self.current_question or self.current_question.get("category") != "RIVERS":
+                await interaction.response.send_message("It's not time to answer Final Jeopardy.", ephemeral=True)
+                return
+
+            if interaction.user.id != self.player.id:
+                await interaction.response.send_message("You are not the active player for this Jeopardy game.", ephemeral=True)
+                return
+
+            correct_answer = self.current_question["answer"]
+            normalized_user_answer = self._normalize_answer(user_answer)
+            normalized_correct_answer = self._normalize_answer(correct_answer)
+
+            if normalized_user_answer == normalized_correct_answer:
+                self.score += self.final_jeopardy_wager
+                response_content = (
+                    f"That's correct! You added your wager of ${self.final_jeopardy_wager}. "
+                    f"Your final score is **${self.score}**."
+                )
+            else:
+                self.score -= self.final_jeopardy_wager
+                response_content = (
+                    f"That's incorrect. The correct answer was **{correct_answer}**. "
+                    f"You lost your wager of ${self.final_jeopardy_wager}. "
+                    f"Your final score is **${self.score}**."
+                )
+            
+            self.current_question["guessed"] = True
+            self.current_question = None
+            
+            if self.timer_task and not self.timer_task.done():
+                self.timer_task.cancel()
+            
+            await interaction.response.send_message(response_content, ephemeral=False)
+            self.game_over = True
+            del active_jeopardy_games[self.channel_id]
 
 
-# --- Tic-Tac-Toe Game Classes ---
+# --- Tic-Tac-Toe Game Classes (unchanged from previous version) ---
 
 class TicTacToeButton(discord.ui.Button):
     """Represents a single square on the Tic-Tac-Toe board."""
@@ -302,6 +673,28 @@ async def on_ready():
     except Exception as e:
         print(f"Failed to sync commands: {e}")
 
+@bot.event
+async def on_message(message: discord.Message):
+    """Listens for messages to handle Jeopardy answers."""
+    # Ignore messages from the bot itself
+    if message.author.id == bot.user.id:
+        return
+
+    # Check if there's an active Jeopardy game in this channel
+    if message.channel.id in active_jeopardy_games:
+        game = active_jeopardy_games[message.channel.id]
+        # Check if there's a question active and it's the player's turn to answer
+        if game.current_question and message.author.id == game.player.id:
+            # Check if the message starts with a valid Jeopardy answer prefix
+            content_lower = message.content.lower()
+            if content_lower.startswith(("what is", "who is", "what are", "who are", "where is", "where are", "when is", "when are")):
+                await game.handle_answer(message, message.content) # Pass the message object directly
+            elif game.current_question.get("category") == "RIVERS" and content_lower.startswith(("what is", "who is", "what are", "who are")): # Final Jeopardy
+                await game.handle_final_jeopardy_answer(message, message.content)
+    
+    # Process other commands normally
+    await bot.process_commands(message)
+
 
 # --- Existing /serene command (unchanged) ---
 @bot.tree.command(name="serene", description="Interact with the Serene bot backend.")
@@ -503,7 +896,7 @@ def to_past_tense(verb):
         return verb + 'ed'
 
 
-# --- NEW /serene_story command (MODIFIED to use Gemini API and PHP JSON output) ---
+# --- MODIFIED /serene_story command (MODIFIED to use Gemini API and PHP JSON output) ---
 @bot.tree.command(name="serene_story", description="Generate a story with contextually appropriate nouns and verbs.")
 async def serene_story_command(interaction: discord.Interaction):
     """
@@ -585,6 +978,8 @@ async def serene_story_command(interaction: discord.Interaction):
         - "ate a dong so long that they [verb_past_tense]"
         - "spun around so fast that they [verb_past_tense]"
         "vomitted so loudly that they [verb_past_tense]"
+        "sand-blast": "sand-blasted", # "sand-blasted out a power-shart"
+        "slip": "slipped", # "slipped off the roof"
         "sand-blasted out a power-shart so strong, that they [verb_past_tense]"
 
         Avoid verbs that are passive, imply a state of being, or require complex grammatical structures (e.g., phrasal verbs that depend heavily on prepositions) to make sense in these direct contexts. Focus on verbs that are direct and complete actions.
@@ -694,8 +1089,7 @@ async def serene_story_command(interaction: discord.Interaction):
 @bot.tree.command(name="serene_game", description="Start a fun game with Serene!")
 @app_commands.choices(game_type=[ # This decorator should come first for the parameter
     app_commands.Choice(name="Tic-Tac-Toe", value="tic_tac_toe"),
-    # Add more game choices here when you create them
-    # app_commands.Choice(name="Guess the Number", value="guess_the_number"),
+    app_commands.Choice(name="Jeopardy", value="jeopardy"), # Added Jeopardy choice
 ])
 @app_commands.describe(game_type="The type of game to play.") # Then this one
 async def serene_game_command(interaction: discord.Interaction, game_type: str):
@@ -705,7 +1099,7 @@ async def serene_game_command(interaction: discord.Interaction, game_type: str):
     """
     await interaction.response.defer(ephemeral=True) # Acknowledge privately
 
-    if game_type == "tic_tac_toe": # Now directly compare the string value
+    if game_type == "tic_tac_toe":
         # Check if a game is already active in this channel
         if interaction.channel.id in active_tictactoe_games:
             await interaction.followup.send(
@@ -733,11 +1127,103 @@ async def serene_game_command(interaction: discord.Interaction, game_type: str):
         )
         game_view.message = game_message # Store the message for later updates
         active_tictactoe_games[interaction.channel.id] = game_view # Store active game
+
+    elif game_type == "jeopardy":
+        if interaction.channel.id in active_jeopardy_games:
+            await interaction.followup.send(
+                "A Jeopardy game is already active in this channel! Please finish it or wait.",
+                ephemeral=True
+            )
+            return
+        
+        await interaction.followup.send("Starting Jeopardy game...", ephemeral=True)
+        
+        jeopardy_game = JeopardyGame(interaction.channel.id, interaction.user)
+        await jeopardy_game.load_board_data()
+
+        if jeopardy_game.board_data:
+            active_jeopardy_games[interaction.channel.id] = jeopardy_game
+            # Send the initial Jeopardy board
+            game_message = await interaction.channel.send(embed=jeopardy_game._get_board_display_embed())
+            jeopardy_game.question_message = game_message # Store the message for updates
+        else:
+            await interaction.followup.send(
+                "Failed to load Jeopardy game data. Please try again later.",
+                ephemeral=True
+            )
+            return
     else:
         await interaction.followup.send(
             f"Game type '{game_type}' is not yet implemented. Stay tuned!",
             ephemeral=True
         )
+
+# --- NEW /jeopardy_select command ---
+@bot.tree.command(name="jeopardy_select", description="Select a Jeopardy question.")
+@app_commands.describe(
+    category="The category name (e.g., 'PRESIDENTIAL INAUGURATIONS')",
+    value="The dollar value of the question (e.g., 200, 400)"
+)
+async def jeopardy_select_command(interaction: discord.Interaction, category: str, value: int):
+    """
+    Allows a user to select a Jeopardy question from the board.
+    """
+    await interaction.response.defer(ephemeral=True)
+
+    if interaction.channel.id not in active_jeopardy_games:
+        await interaction.followup.send("No Jeopardy game is active in this channel.", ephemeral=True)
+        return
+
+    game = active_jeopardy_games[interaction.channel.id]
+
+    if interaction.user.id != game.player.id:
+        await interaction.followup.send("You are not the active player for this Jeopardy game.", ephemeral=True)
+        return
+    
+    if game.current_question:
+        await interaction.followup.send("A question is already active. Please answer it first!", ephemeral=True)
+        return
+
+    question_data, q_type = game._find_question(category, value)
+
+    if question_data and not question_data["guessed"]:
+        question_data["category"] = category # Add category to question data for display
+        await interaction.followup.send(f"You selected: **{category} for ${value}**", ephemeral=True)
+        await game.present_question(interaction, question_data)
+    else:
+        await interaction.followup.send(
+            f"Question '{category}' for ${value} not found or already guessed. Please check the board.",
+            ephemeral=True
+        )
+
+# --- NEW /jeopardy_wager command (for Final Jeopardy) ---
+@bot.tree.command(name="jeopardy_wager", description="Place your wager for Final Jeopardy.")
+@app_commands.describe(amount="The amount to wager.")
+async def jeopardy_wager_command(interaction: discord.Interaction, amount: int):
+    """
+    Allows a user to place their wager for Final Jeopardy.
+    """
+    await interaction.response.defer(ephemeral=True)
+
+    if interaction.channel.id not in active_jeopardy_games:
+        await interaction.followup.send("No Jeopardy game is active in this channel.", ephemeral=True)
+        return
+
+    game = active_jeopardy_games[interaction.channel.id]
+
+    if interaction.user.id != game.player.id:
+        await interaction.followup.send("You are not the active player for this Jeopardy game.", ephemeral=True)
+        return
+    
+    # Check if it's actually Final Jeopardy time
+    if not game._is_game_over() or not game.board_data.get("final_jeopardy") or game.board_data["final_jeopardy"]["guessed"]:
+        await interaction.followup.send("It's not time for Final Jeopardy or it has already been played.", ephemeral=True)
+        return
+
+    # Assuming Final Jeopardy is the only remaining step if _is_game_over() returns True without all questions being guessed
+    # This logic needs refinement to explicitly transition to Final Jeopardy.
+    # For now, we'll assume this command is called when it's the right time.
+    await game.handle_wager(interaction, amount)
 
 
 # Load environment variables for the token
