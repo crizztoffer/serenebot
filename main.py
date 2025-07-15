@@ -6,7 +6,7 @@ import asyncio # Import asyncio for sleep
 
 import discord
 from discord.ext import commands
-from discord import app_commands, ui
+from discord import app_commands, ui # ui is still needed for TicTacToeView and TicTacToeButton
 import aiohttp
 
 # Define intents
@@ -26,7 +26,6 @@ active_tictactoe_games = {}
 
 class TicTacToeButton(discord.ui.Button):
     """Represents a single square on the Tic-Tac-Toe board."""
-    # Changed default player_mark to '⬜' to satisfy Discord's label requirement
     def __init__(self, row: int, col: int, player_mark: str = "⬜"):
         super().__init__(style=discord.ButtonStyle.secondary, label=player_mark, row=row)
         self.row = row
@@ -50,7 +49,13 @@ class TicTacToeButton(discord.ui.Button):
         # Update the button and board
         self.player_mark = view.current_player # Update button's internal state
         self.label = self.player_mark # Update button's visible label
-        self.style = discord.ButtonStyle.primary if self.player_mark == "X" else discord.ButtonStyle.danger
+        
+        # Set button style based on player mark
+        if self.player_mark == "X":
+            self.style = discord.ButtonStyle.primary # Blue for X
+        else: # self.player_mark == "O"
+            self.style = discord.ButtonStyle.danger # Red for O
+            
         self.disabled = True
         view.board[self.row][self.col] = self.player_mark # Update internal board state
 
@@ -235,7 +240,7 @@ class TicTacToeView(discord.ui.View):
             for item in self.children:
                 if isinstance(item, TicTacToeButton) and item.row == row and item.col == col:
                     item.label = "O"
-                    item.style = discord.ButtonStyle.danger
+                    item.style = discord.ButtonStyle.danger # Red for O
                     item.disabled = True
                     break
             
@@ -279,61 +284,6 @@ class TicTacToeView(discord.ui.View):
         if self.message and self.message.channel.id in active_tictactoe_games:
             del active_tictactoe_games[self.message.channel.id]
         print(f"Tic-Tac-Toe game in channel {self.message.channel.id} timed out.")
-
-
-# --- Game Selection UI ---
-
-class GameSelect(discord.ui.Select):
-    """Dropdown for selecting a game."""
-    def __init__(self):
-        options = [
-            discord.SelectOption(label="Tic-Tac-Toe", description="Play a classic game of Tic-Tac-Toe!", emoji="❌"),
-            # Add more game options here when you create them
-            # discord.SelectOption(label="Guess the Number", description="Try to guess my secret number!", emoji="🔢"),
-        ]
-        super().__init__(placeholder="Choose a game...", min_values=1, max_values=1, options=options)
-
-    async def callback(self, interaction: discord.Interaction):
-        """Handle game selection from the dropdown."""
-        selected_game = self.values[0]
-
-        if selected_game == "Tic-Tac-Toe":
-            # Check if a game is already active in this channel
-            if interaction.channel.id in active_tictactoe_games:
-                await interaction.response.send_message(
-                    "A Tic-Tac-Toe game is already active in this channel! Please finish it or wait.",
-                    ephemeral=True
-                )
-                return
-
-            # Players are the initiator and the bot for now, but you could add an @opponent parameter
-            player1 = interaction.user
-            player2 = bot.user # Bot plays as the second player
-
-            # Acknowledge the interaction privately first
-            await interaction.response.send_message(
-                f"Starting Tic-Tac-Toe for {player1.display_name} vs. {player2.display_name}...",
-                ephemeral=True
-            )
-
-            game_view = TicTacToeView(player_x=player1, player_o=player2)
-            
-            # Send the initial game board message
-            # This is the message that holds the interactive board
-            game_message = await interaction.channel.send(
-                content=f"It's **{player1.display_name}**'s turn (X)",
-                embed=game_view._start_game_message(),
-                view=game_view
-            )
-            game_view.message = game_message # Store the message for later updates
-            active_tictactoe_games[interaction.channel.id] = game_view # Store active game
-
-
-class SereneGameView(discord.ui.View):
-    """The initial view for the /serene_game command, containing the game selection dropdown."""
-    def __init__(self):
-        super().__init__(timeout=60) # View times out after 60 seconds if no selection
-        self.add_item(GameSelect())
 
 
 # --- Bot Events ---
@@ -397,7 +347,6 @@ async def serene_command(interaction: discord.Interaction, text_input: str):
                     )
                     await interaction.followup.send(display_message)
                 else:
-                    # Handle non-200 HTTP responses
                     await interaction.followup.send(
                         f"**{player_name} says:** {text_input}\n"
                         f"Serene backend returned an error: HTTP Status {response.status}"
@@ -636,7 +585,7 @@ async def serene_story_command(interaction: discord.Interaction):
         - "ate a dong so long that they [verb_past_tense]"
         - "spun around so fast that they [verb_past_tense]"
         "vomitted so loudly that they [verb_past_tense]"
-        "sand-blasted out a power-shart so strong, that they [verb_past_tense]"
+        "sand-blasted out a power-shart so strong, that that they [verb_past_tense]"
 
         Avoid verbs that are passive, imply a state of being, or require complex grammatical structures (e.g., phrasal verbs that depend heavily on prepositions) to make sense in these direct contexts. Focus on verbs that are direct and complete actions.
 
@@ -741,18 +690,54 @@ async def serene_story_command(interaction: discord.Interaction):
     await interaction.followup.send(display_message)
 
 
-# --- NEW /serene_game command ---
+# --- MODIFIED /serene_game command ---
 @bot.tree.command(name="serene_game", description="Start a fun game with Serene!")
-async def serene_game_command(interaction: discord.Interaction):
+@app_commands.describe(game_type="The type of game to play.")
+@app_commands.choices(game_type=[
+    app_commands.Choice(name="Tic-Tac-Toe", value="tic_tac_toe"),
+    # Add more game choices here when you create them
+    # app_commands.Choice(name="Guess the Number", value="guess_the_number"),
+])
+async def serene_game_command(interaction: discord.Interaction, game_type: app_commands.Choice):
     """
     Handles the /serene_game slash command.
-    Presents a dropdown to select a game.
+    Starts the selected game directly.
     """
-    await interaction.response.send_message(
-        "Welcome to Serene's Games! Please choose a game:",
-        view=SereneGameView(),
-        ephemeral=True # Make this initial message only visible to the user
-    )
+    await interaction.response.defer(ephemeral=True) # Acknowledge privately
+
+    if game_type.value == "tic_tac_toe":
+        # Check if a game is already active in this channel
+        if interaction.channel.id in active_tictactoe_games:
+            await interaction.followup.send(
+                "A Tic-Tac-Toe game is already active in this channel! Please finish it or wait.",
+                ephemeral=True
+            )
+            return
+
+        player1 = interaction.user
+        player2 = bot.user # Bot plays as the second player
+
+        # Send initial private message (now part of followup)
+        await interaction.followup.send(
+            f"Starting Tic-Tac-Toe for {player1.display_name} vs. {player2.display_name}...",
+            ephemeral=True
+        )
+
+        game_view = TicTacToeView(player_x=player1, player_o=player2)
+        
+        # Send the public game board message
+        game_message = await interaction.channel.send(
+            content=f"It's **{player1.display_name}**'s turn (X)",
+            embed=game_view._start_game_message(),
+            view=game_view
+        )
+        game_view.message = game_message # Store the message for later updates
+        active_tictactoe_games[interaction.channel.id] = game_view # Store active game
+    else:
+        await interaction.followup.send(
+            f"Game type '{game_type.name}' is not yet implemented. Stay tuned!",
+            ephemeral=True
+        )
 
 
 # Load environment variables for the token
