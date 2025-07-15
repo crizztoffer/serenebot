@@ -22,6 +22,92 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 active_tictactoe_games = {}
 active_jeopardy_games = {} # Re-introducing this for the new Jeopardy game
 
+# --- New Jeopardy Game UI Components ---
+
+class CategoryValueSelect(discord.ui.Select):
+    """A dropdown (select) for choosing a question's value within a specific category."""
+    def __init__(self, category_name: str, options: list[discord.SelectOption], placeholder: str):
+        super().__init__(
+            placeholder=placeholder,
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id=f"jeopardy_select_{category_name.replace(' ', '_').lower()}",
+            row=0 # Explicitly set row to 0 for all category dropdowns
+        )
+        self.category_name = category_name # Store category name for later use
+
+    async def callback(self, interaction: discord.Interaction):
+        """Handles a selection from the dropdown."""
+        view: JeopardyGameView = self.view
+        game: NewJeopardyGame = view.game
+
+        # Ensure it's the active player's turn to select
+        if interaction.user.id != game.player.id:
+            await interaction.response.send_message("You are not the active player for this Jeopardy game.", ephemeral=True)
+            return
+        
+        if game.current_question: # If a question is already being answered
+            await interaction.response.send_message("A question is currently active. Please wait for it to conclude.", ephemeral=True)
+            return
+
+        # Store the selected category and value in the view's state
+        selected_value_str = self.values[0] # The selected value is always a string from SelectOption
+        selected_value = int(selected_value_str) # Convert back to int
+
+        view._selected_category = self.category_name
+        view._selected_value = selected_value
+        
+        # For debugging: Acknowledge the selection
+        await interaction.response.send_message(
+            f"You selected **{self.category_name}** for **${selected_value}**.",
+            ephemeral=True
+        )
+
+# Removed PickQuestionButton class as requested.
+
+class JeopardyGameView(discord.ui.View):
+    """The Discord UI View that holds the interactive Jeopardy board dropdowns."""
+    def __init__(self, game: 'NewJeopardyGame'):
+        super().__init__(timeout=300) # View times out after 5 minutes of inactivity
+        self.game = game # Reference to the NewJeopardyGame instance
+        self._selected_category = None # Stores the category selected by the user
+        self._selected_value = None # Stores the value selected by the user
+
+    def add_board_components(self):
+        """Dynamically adds dropdowns (selects) for categories to the view."""
+        self.clear_items()  # Clear existing items before rebuilding the board
+
+        categories_to_process = self.game.normal_jeopardy_data.get("normal_jeopardy", [])
+
+        # Add category dropdowns, but limit to 5 dropdowns total
+        dropdowns_added = 0
+
+        for category_data in categories_to_process:
+            if dropdowns_added >= 5:
+                break  # Do not exceed 5 dropdowns total
+
+            category_name = category_data["category"]
+            options = [
+                discord.SelectOption(label=f"${q['value']}", value=str(q['value']))
+                for q in category_data["questions"] if not q["guessed"] # Only show unguessed questions
+            ]
+
+            if options: # Only add a dropdown if there are available questions in the category
+                self.add_item(CategoryValueSelect(category_name, options, f"Pick for {category_name}"))
+                dropdowns_added += 1
+
+    async def on_timeout(self):
+        """Called when the view times out due to inactivity."""
+        if self.game.board_message:
+            # Edit the message to remove the interactive components and indicate timeout
+            await self.game.board_message.edit(content="Jeopardy game timed out due to inactivity.", view=None, embed=None)
+        if self.game.channel_id in active_jeopardy_games:
+            # Clean up the game state
+            del active_jeopardy_games[self.game.channel_id]
+        print(f"Jeopardy game in channel {self.game.channel_id} timed out.")
+
+
 # --- Placeholder for new Jeopardy Game Class ---
 class NewJeopardyGame:
     """
@@ -32,10 +118,13 @@ class NewJeopardyGame:
     def __init__(self, channel_id: int, player: discord.User):
         self.channel_id = channel_id
         self.player = player
+        self.score = 0 # Initialize player score
         self.normal_jeopardy_data = None
         self.double_jeopardy_data = None
         self.final_jeopardy_data = None
         self.jeopardy_data_url = "https://serenekeks.com/serene_bot_games.php"
+        self.board_message = None # To store the message containing the board UI
+        self.current_question = None # Stores the question currently being presented
 
     async def fetch_and_parse_jeopardy_data(self) -> bool:
         """
@@ -43,6 +132,7 @@ class NewJeopardyGame:
         Parses the JSON and separates it into three distinct data structures:
         normal_jeopardy, double_jeopardy, and final_jeopardy, storing them
         as attributes of this class.
+        Initializes 'guessed' status for all questions.
         Returns True if data is successfully fetched and parsed, False otherwise.
         """
         try:
@@ -51,20 +141,22 @@ class NewJeopardyGame:
                     if response.status == 200:
                         full_data = await response.json()
                         
-                        # Extract and store the normal jeopardy data
+                        # Initialize 'guessed' status for all questions and add category name
+                        for category_type in ["normal_jeopardy", "double_jeopardy"]:
+                            if category_type in full_data:
+                                for category in full_data[category_type]:
+                                    for question_data in category["questions"]:
+                                        question_data["guessed"] = False
+                                        question_data["category"] = category["category"] # Store category name in question
+                        if "final_jeopardy" in full_data:
+                            full_data["final_jeopardy"]["guessed"] = False
+                            full_data["final_jeopardy"]["category"] = full_data["final_jeopardy"].get("category", "Final Jeopardy")
+
                         self.normal_jeopardy_data = {"normal_jeopardy": full_data.get("normal_jeopardy", [])}
-                        
-                        # Extract and store the double jeopardy data
                         self.double_jeopardy_data = {"double_jeopardy": full_data.get("double_jeopardy", [])}
-                        
-                        # Extract and store the final jeopardy data
                         self.final_jeopardy_data = {"final_jeopardy": full_data.get("final_jeopardy", {})}
                         
                         print(f"Jeopardy data fetched and parsed for channel {self.channel_id}")
-                        # Optional: Print a snippet for verification in the console
-                        # print(f"Normal Jeopardy categories: {[c['category'] for c in self.normal_jeopardy_data['normal_jeopardy'][:2]]}")
-                        # print(f"Double Jeopardy categories: {[c['category'] for c in self.double_jeopardy_data['double_jeopardy'][:2]]}")
-                        # print(f"Final Jeopardy category: {self.final_jeopardy_data['final_jeopardy'].get('category', 'N/A')}")
                         return True
                     else:
                         print(f"Error fetching Jeopardy data: HTTP Status {response.status}")
@@ -72,6 +164,37 @@ class NewJeopardyGame:
         except Exception as e:
             print(f"Error loading Jeopardy data: {e}")
             return False
+
+    def _get_board_display_embed(self) -> discord.Embed:
+        """Creates an embed to display the current Jeopardy board for Normal Jeopardy."""
+        embed = discord.Embed(
+            title="Jeopardy! Board",
+            description=f"Player: **{self.player.display_name}** | Score: **${self.score}**\n\n"
+                        "__**Normal Jeopardy**__\nSelect a category and value from the dropdowns below!", # Updated instruction
+            color=discord.Color.gold()
+        )
+
+        categories_to_display = self.normal_jeopardy_data.get("normal_jeopardy", [])
+        
+        # Add category fields for text-based overview
+        for i, category in enumerate(categories_to_display):
+            if i >= 5: # Display up to 5 categories in the embed fields
+                break
+            category_name = category["category"]
+            questions_display = []
+            for q in category["questions"]:
+                if q["guessed"]:
+                    questions_display.append(f"~~${q['value']}~~") # Strikethrough guessed questions
+                else:
+                    questions_display.append(f"${q['value']}")
+            embed.add_field(name=category_name, value="\n".join(questions_display), inline=True)
+        
+        # Add blank fields for spacing if the number of displayed categories is not a multiple of 3
+        while len(embed.fields) % 3 != 0:
+            embed.add_field(name="\u200b", value="\u200b", inline=True)
+
+        return embed
+
 
 # --- Tic-Tac-Toe Game Classes ---
 
@@ -299,7 +422,7 @@ class TicTacToeView(discord.ui.View):
             if self._check_winner():
                 winner = self.players[self.current_player].display_name
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner} wins!** 🎉",
+                    content=f"🎉 **{winner} wins!** �",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -598,6 +721,100 @@ async def serene_story_command(interaction: discord.Interaction):
         - "took a cock so big that they [verb_past_tense]"
         - "put their thing down, flipped it, and reversed it so perfectly, that they [verb_past_tense]"
         - "waffle-spanked a vagrant so hard that they [verb_past_tense]"
+        "kiss": "kissed", # "kissed Crizz P."
+        "spin": "spun", # "spun around"
+        "vomit": "vomitted", # "vomitted so loudly"
+        "sand-blast": "sand-blasted", # "sand-blasted out a power-shart"
+        "slip": "slipped", # "slipped off the roof"
+    }
+    if verb in irregular_verbs:
+        return irregular_verbs[verb]
+    elif verb.endswith('e'):
+        return verb + 'd'
+    elif verb.endswith('y') and len(verb) > 1 and verb[-2] not in 'aeiou':
+        return verb[:-1] + 'ied'
+    else: # Simplified to avoid complex CVC rule that caused "weatherred"
+        return verb + 'ed'
+
+
+# --- MODIFIED /serene_story command (MODIFIED to use Gemini API and PHP JSON output) ---
+@bot.tree.command(name="serene_story", description="Generate a story with contextually appropriate nouns and verbs.")
+async def serene_story_command(interaction: discord.Interaction):
+    """
+    Handles the /serene_story slash command.
+    Fetches sentence structure from PHP, generates nouns and verbs using Gemini API,
+    then constructs and displays the story.
+    """
+    await interaction.response.defer() # Acknowledge the interaction
+
+    php_backend_url = "https://serenekeks.com/serene_bot_2.php"
+    player_name = interaction.user.display_name
+
+    # Initialize nouns and verbs with fallbacks in case of API failure
+    nouns = ["dragon", "wizard", "monster"]
+    verbs_infinitive = ["fly", "vanish"]
+
+    # Initialize php_story_structure with defaults in case PHP call fails
+    php_story_structure = {
+        "first": "There once was a ",
+        "second": " who loved to ",
+        "third": ". But then one night, there came a shock… for a ",
+        "forth": " came barreling towards them before they ",
+        "fifth": " and lived happily ever after."
+    }
+    v1_form_required = "infinitive"
+    v2_form_required = "past_tense"
+
+    try:
+        # First, call the PHP backend to get the sentence structure
+        async with aiohttp.ClientSession() as session:
+            async with session.get(php_backend_url) as response:
+                if response.status == 200:
+                    php_story_structure = await response.json()
+                    
+                    # Extract verb form requirements from PHP response (though currently static, good practice)
+                    v1_form_required = php_story_structure.get("verb_forms", {}).get("v1_form", "infinitive")
+                    v2_form_required = php_story_structure.get("verb_forms", {}).get("v2_form", "past_tense")
+
+                else:
+                    print(f"Warning: PHP backend call failed with status {response.status}. Using default verb forms and structure.")
+
+    except aiohttp.ClientError as e:
+        print(f"Error connecting to PHP backend: {e}. Using default story structure and verb forms.")
+    except Exception as e:
+        print(f"An unexpected error occurred while fetching PHP structure: {e}. Using default story structure and verb forms.")
+
+
+    try:
+        # Prompt for the Gemini API to get contextually appropriate words
+        # The prompt is significantly refined to ensure variety and contextual cohesion
+        gemini_prompt = """
+        Generate 3 distinct, imaginative, and often absurd or whimsical nouns. These nouns should be simple, common, and in **lowercase**.
+        Also, generate 2 distinct, action-oriented verbs in their BASE/INFINITIVE form. These verbs must be simple, common, and in **lowercase**. They must be suitable for both an infinitive context (e.g., "loved to [verb]") and a simple past tense context (e.g., "they [verb_past_tense]").
+        Crucially, consider the following specific PHP sentence fragments where these verbs will be inserted. Ensure the BASE verb makes sense in these contexts, even when later conjugated to past tense:
+
+        **For Verb 1 (infinitive - will be used after phrases like 'loved to'):**
+        - "who loved to [verb]"
+        - "that hated to [verb]"
+        - "who used to [verb]"
+        - "that preferred to [verb]"
+        - "spent their life trying to [verb]"
+
+        **For Verb 2 (will be converted to simple past tense - will be used after phrases like 'before they'):**
+        - "came barreling towards them before they [verb_past_tense]"
+        - "fell from the heavens just as they [verb_past_tense]"
+        - "slipped off the roof above—and with a thump—they [verb_past_tense]"
+        - "shit out a turd that flew out of their ass so fast, they [verb_past_tense]"
+        - "busted a nut so hard, they [verb_past_tense]"
+        - "burped so loud, they [verb_past_tense]"
+        - "rocketd right into their face—so hard that they [verb_past_tense]"
+        - "crossed over the great divide, gave Jesus a high five, and flew back down with such velocity, that they [verb_past_tense]"
+        - "told such a bad joke that they [verb_past_tense]"
+        - "whispered so quietly that they [verb_past_tense]"
+        - "pissed so loudly that they [verb_past_tense]"
+        - "took a cock so big that they [verb_past_tense]"
+        - "put their thing down, flipped it, and reversed it so perfectly, that they [verb_past_tense]"
+        - "waffle-spanked a vagrant so hard that they [verb_past_tense]"
         - "kissed Crizz P. so fast that he [verb_past_tense]"
         - "spun around so fast that they [verb_past_tense]"
         "vomitted so loudly that they [verb_past_tense]"
@@ -768,20 +985,17 @@ async def serene_game_command(interaction: discord.Interaction, game_type: str):
 
         if success:
             active_jeopardy_games[interaction.channel.id] = jeopardy_game
-            await interaction.followup.send(
-                "Jeopardy data loaded! Normal, Double, and Final Jeopardy data are ready.",
-                ephemeral=True
+            
+            # Create and populate the JeopardyGameView with dropdowns
+            jeopardy_view = JeopardyGameView(jeopardy_game)
+            jeopardy_view.add_board_components() # This will add the dropdowns
+            
+            # Send the initial Jeopardy board with dropdowns
+            game_message = await interaction.channel.send(
+                embed=jeopardy_game._get_board_display_embed(),
+                view=jeopardy_view
             )
-            # For demonstration, you could print the first category of each type
-            normal_cat = jeopardy_game.normal_jeopardy_data['normal_jeopardy'][0]['category'] if jeopardy_game.normal_jeopardy_data['normal_jeopardy'] else 'N/A'
-            double_cat = jeopardy_game.double_jeopardy_data['double_jeopardy'][0]['category'] if jeopardy_game.double_jeopardy_data['double_jeopardy'] else 'N/A'
-            final_cat = jeopardy_game.final_jeopardy_data['final_jeopardy'].get('category', 'N/A')
-            await interaction.followup.send(
-                f"First Normal Jeopardy Category: **{normal_cat}**\n"
-                f"First Double Jeopardy Category: **{double_cat}**\n"
-                f"Final Jeopardy Category: **{final_cat}**",
-                ephemeral=True
-            )
+            jeopardy_game.board_message = game_message # Store the message for updates
 
         else:
             await interaction.followup.send(
