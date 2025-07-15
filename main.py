@@ -77,14 +77,17 @@ class JeopardyGameView(discord.ui.View):
     def add_board_components(self):
         """
         Dynamically adds dropdowns (selects) for categories to the view.
-        Strictly limits to 5 dropdowns on row 0 for debugging purposes.
+        Each dropdown is placed on its own row, up to a maximum of 5 rows (0-4).
         """
         self.clear_items()  # Clear existing items before rebuilding the board
 
         categories_to_process = self.game.normal_jeopardy_data.get("normal_jeopardy", [])
 
-        # Process only the first 5 categories to ensure we don't exceed Discord's 5-component-per-row limit
-        for category_data in categories_to_process[:5]: 
+        # Iterate through categories and assign each to a new row, limiting to 5 dropdowns total
+        for i, category_data in enumerate(categories_to_process):
+            if i >= 5: # Discord UI has a maximum of 5 rows (0-4) for components
+                break
+
             category_name = category_data["category"]
             options = [
                 discord.SelectOption(label=f"${q['value']}", value=str(q['value']))
@@ -92,15 +95,15 @@ class JeopardyGameView(discord.ui.View):
             ]
 
             if options: # Only add a dropdown if there are available questions in the category
-                # Always add to row 0 for this debugging step
-                self.add_item(CategoryValueSelect(category_name, options, f"Pick for {category_name}", row=0))
+                # Place each category's dropdown on its own row (i.e., row=0, row=1, row=2, etc.)
+                self.add_item(CategoryValueSelect(category_name, options, f"Pick for {category_name}", row=i))
 
     async def on_timeout(self):
         """Called when the view times out due to inactivity."""
         if self.game.board_message:
             # Edit the message to remove the interactive components and indicate timeout
             await self.game.board_message.edit(content="Jeopardy game timed out due to inactivity.", view=None, embed=None)
-        if self.game.channel_id in active_jeopardy_games:
+        if self.game.channel.id in active_jeopardy_games:
             # Clean up the game state
             del active_jeopardy_games[self.game.channel_id]
         print(f"Jeopardy game in channel {self.game.channel_id} timed out.")
