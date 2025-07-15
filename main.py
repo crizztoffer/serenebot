@@ -422,7 +422,7 @@ class TicTacToeView(discord.ui.View):
             if self._check_winner():
                 winner = self.players[self.current_player].display_name
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner} wins!** �",
+                    content=f"🎉 **{winner} wins!** 🎉",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -721,100 +721,6 @@ async def serene_story_command(interaction: discord.Interaction):
         - "took a cock so big that they [verb_past_tense]"
         - "put their thing down, flipped it, and reversed it so perfectly, that they [verb_past_tense]"
         - "waffle-spanked a vagrant so hard that they [verb_past_tense]"
-        "kiss": "kissed", # "kissed Crizz P."
-        "spin": "spun", # "spun around"
-        "vomit": "vomitted", # "vomitted so loudly"
-        "sand-blast": "sand-blasted", # "sand-blasted out a power-shart"
-        "slip": "slipped", # "slipped off the roof"
-    }
-    if verb in irregular_verbs:
-        return irregular_verbs[verb]
-    elif verb.endswith('e'):
-        return verb + 'd'
-    elif verb.endswith('y') and len(verb) > 1 and verb[-2] not in 'aeiou':
-        return verb[:-1] + 'ied'
-    else: # Simplified to avoid complex CVC rule that caused "weatherred"
-        return verb + 'ed'
-
-
-# --- MODIFIED /serene_story command (MODIFIED to use Gemini API and PHP JSON output) ---
-@bot.tree.command(name="serene_story", description="Generate a story with contextually appropriate nouns and verbs.")
-async def serene_story_command(interaction: discord.Interaction):
-    """
-    Handles the /serene_story slash command.
-    Fetches sentence structure from PHP, generates nouns and verbs using Gemini API,
-    then constructs and displays the story.
-    """
-    await interaction.response.defer() # Acknowledge the interaction
-
-    php_backend_url = "https://serenekeks.com/serene_bot_2.php"
-    player_name = interaction.user.display_name
-
-    # Initialize nouns and verbs with fallbacks in case of API failure
-    nouns = ["dragon", "wizard", "monster"]
-    verbs_infinitive = ["fly", "vanish"]
-
-    # Initialize php_story_structure with defaults in case PHP call fails
-    php_story_structure = {
-        "first": "There once was a ",
-        "second": " who loved to ",
-        "third": ". But then one night, there came a shock… for a ",
-        "forth": " came barreling towards them before they ",
-        "fifth": " and lived happily ever after."
-    }
-    v1_form_required = "infinitive"
-    v2_form_required = "past_tense"
-
-    try:
-        # First, call the PHP backend to get the sentence structure
-        async with aiohttp.ClientSession() as session:
-            async with session.get(php_backend_url) as response:
-                if response.status == 200:
-                    php_story_structure = await response.json()
-                    
-                    # Extract verb form requirements from PHP response (though currently static, good practice)
-                    v1_form_required = php_story_structure.get("verb_forms", {}).get("v1_form", "infinitive")
-                    v2_form_required = php_story_structure.get("verb_forms", {}).get("v2_form", "past_tense")
-
-                else:
-                    print(f"Warning: PHP backend call failed with status {response.status}. Using default verb forms and structure.")
-
-    except aiohttp.ClientError as e:
-        print(f"Error connecting to PHP backend: {e}. Using default story structure and verb forms.")
-    except Exception as e:
-        print(f"An unexpected error occurred while fetching PHP structure: {e}. Using default story structure and verb forms.")
-
-
-    try:
-        # Prompt for the Gemini API to get contextually appropriate words
-        # The prompt is significantly refined to ensure variety and contextual cohesion
-        gemini_prompt = """
-        Generate 3 distinct, imaginative, and often absurd or whimsical nouns. These nouns should be simple, common, and in **lowercase**.
-        Also, generate 2 distinct, action-oriented verbs in their BASE/INFINITIVE form. These verbs must be simple, common, and in **lowercase**. They must be suitable for both an infinitive context (e.g., "loved to [verb]") and a simple past tense context (e.g., "they [verb_past_tense]").
-        Crucially, consider the following specific PHP sentence fragments where these verbs will be inserted. Ensure the BASE verb makes sense in these contexts, even when later conjugated to past tense:
-
-        **For Verb 1 (infinitive - will be used after phrases like 'loved to'):**
-        - "who loved to [verb]"
-        - "that hated to [verb]"
-        - "who used to [verb]"
-        - "that preferred to [verb]"
-        - "spent their life trying to [verb]"
-
-        **For Verb 2 (will be converted to simple past tense - will be used after phrases like 'before they'):**
-        - "came barreling towards them before they [verb_past_tense]"
-        - "fell from the heavens just as they [verb_past_tense]"
-        - "slipped off the roof above—and with a thump—they [verb_past_tense]"
-        - "shit out a turd that flew out of their ass so fast, they [verb_past_tense]"
-        - "busted a nut so hard, they [verb_past_tense]"
-        - "burped so loud, they [verb_past_tense]"
-        - "rocketd right into their face—so hard that they [verb_past_tense]"
-        - "crossed over the great divide, gave Jesus a high five, and flew back down with such velocity, that they [verb_past_tense]"
-        - "told such a bad joke that they [verb_past_tense]"
-        - "whispered so quietly that they [verb_past_tense]"
-        - "pissed so loudly that they [verb_past_tense]"
-        - "took a cock so big that they [verb_past_tense]"
-        - "put their thing down, flipped it, and reversed it so perfectly, that they [verb_past_tense]"
-        - "waffle-spanked a vagrant so hard that they [verb_past_tense]"
         - "kissed Crizz P. so fast that he [verb_past_tense]"
         - "spun around so fast that they [verb_past_tense]"
         "vomitted so loudly that they [verb_past_tense]"
@@ -828,7 +734,7 @@ async def serene_story_command(interaction: discord.Interaction):
         """
 
         chat_history = []
-        chat_history.append({"role": "user", "parts": [{"text": gemini_prompt}]})
+        chat_history.push({"role": "user", "parts": [{"text": gemini_prompt}]})
         
         # Define the response schema for structured JSON output from Gemini
         payload = {
