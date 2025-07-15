@@ -598,11 +598,11 @@ class JeopardyGame:
 
 class TicTacToeButton(discord.ui.Button):
     """Represents a single square on the Tic-Tac-Toe board."""
-    def __init__(self, row: int, col: int, player_mark: str = "⬜"):
+    def __init__(self, row: int, col: int, player_mark: str = " "): # Changed from "⬜" to " "
         super().__init__(style=discord.ButtonStyle.secondary, label=player_mark, row=row)
         self.row = row
         self.col = col
-        self.player_mark = player_mark # This will be '⬜', 'X', or 'O'
+        self.player_mark = player_mark # This will be ' ', 'X', or 'O'
 
     async def callback(self, interaction: discord.Interaction):
         """Handle button click for a Tic-Tac-Toe square."""
@@ -644,8 +644,8 @@ class TicTacToeButton(discord.ui.Button):
             )
             del active_tictactoe_games[interaction.channel.id] # End the game
         elif view._check_draw():
-            await interaction.edit_original_response(
-                content="It's a **draw!** �",
+            await interaction.edit_original_original_response(
+                content="It's a **draw!** 🤝",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -683,8 +683,8 @@ class TicTacToeView(discord.ui.View):
         """Initializes the 3x3 grid of buttons."""
         for row in range(3):
             for col in range(3):
-                # Pass "⬜" as the initial label for the button
-                self.add_item(TicTacToeButton(row, col, player_mark="⬜"))
+                # Pass " " as the initial label for the button
+                self.add_item(TicTacToeButton(row, col, player_mark=" "))
 
     def _update_board_display(self):
         """Updates the labels and styles of the buttons to reflect the current board state.
@@ -724,7 +724,7 @@ class TicTacToeView(discord.ui.View):
                 elif mark == "O":
                     board_str += "🅾️ " # Regional indicator o
                 else:
-                    board_str += "⬜ " # White square
+                    board_str += "⬜ " # White square (using emoji here is fine as it's a string literal not a variable)
             board_str += "\n"
         embed.add_field(name="Board", value=board_str, inline=False)
         return embed
@@ -825,7 +825,7 @@ class TicTacToeView(discord.ui.View):
                     view=self._end_game()
                 )
                 del active_tictactoe_games[interaction.channel.id]
-            elif view._check_draw():
+            elif self._check_draw():
                 await interaction.edit_original_response(
                     content="It's a **draw!** 🤝",
                     embed=self._start_game_message(),
@@ -1134,7 +1134,6 @@ async def serene_story_command(interaction: discord.Interaction):
         - "put their thing down, flipped it, and reversed it so perfectly, that they [verb_past_tense]"
         - "waffle-spanked a vagrant so hard that they [verb_past_tense]"
         - "kissed Crizz P. so fast that he [verb_past_tense]"
-        - "ate a dong so long that they [verb_past_tense]"
         - "spun around so fast that they [verb_past_tense]"
         "vomitted so loudly that they [verb_past_tense]"
         "sand-blasted out a power-shart so strong, that they [verb_past_tense]"
@@ -1353,4 +1352,3 @@ if BOT_TOKEN is None:
     print("Error: BOT_TOKEN environment variable not set.")
 else:
     bot.run(BOT_TOKEN)
-�
