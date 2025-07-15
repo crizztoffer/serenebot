@@ -159,6 +159,7 @@ class CategoryValueSelect(discord.ui.Select):
                 )
 
                 max_wager = max(2000, game.score) if game.score >= 0 else 2000
+                print(f"DEBUG: Player score: {game.score}, Calculated max_wager: {max_wager}") # DEBUG
                 
                 wager_prompt_message = await interaction.channel.send(
                     f"{game.player.display_name}, please enter your wager. "
@@ -171,27 +172,33 @@ class CategoryValueSelect(discord.ui.Select):
                 try:
                     wager_msg = await bot.wait_for('message', check=check_wager, timeout=30.0)
                     wager_input = int(wager_msg.content)
+                    print(f"DEBUG: User entered wager: {wager_input}") # DEBUG
 
                     if wager_input <= 0:
                         await interaction.channel.send("Your wager must be a positive amount. Defaulting to $500.", delete_after=5)
                         game.current_wager = 500
+                        print("DEBUG: Wager defaulted to 500 (<=0)") # DEBUG
                     elif wager_input > max_wager:
                         await interaction.channel.send(f"Your wager exceeds the maximum allowed (${max_wager}). Defaulting to max wager.", delete_after=5)
                         game.current_wager = max_wager
+                        print(f"DEBUG: Wager defaulted to max_wager ({max_wager})") # DEBUG
                     else:
                         game.current_wager = wager_input
+                        print(f"DEBUG: Wager set to user input: {game.current_wager}") # DEBUG
                     
                     await wager_prompt_message.delete()
                     await wager_msg.delete()
 
                 except asyncio.TimeoutError:
+                    print("DEBUG: Wager input timed out.") # DEBUG
                     await interaction.channel.send("Time's up! You didn't enter a wager. Defaulting to $500.", delete_after=5)
                     game.current_wager = 500
                 except Exception as e:
-                    print(f"Error getting wager: {e}")
+                    print(f"DEBUG: Error getting wager: {e}") # DEBUG
                     await interaction.channel.send("An error occurred while getting your wager. Defaulting to $500.", delete_after=5)
                     game.current_wager = 500
                 
+                print(f"DEBUG: Final game.current_wager before sending question: {game.current_wager}") # DEBUG
                 # Now send the question for Daily Double, reflecting the wager
                 await interaction.followup.send(
                     f"You wagered **${game.current_wager}**.\n*For the Daily Double:*\n**{question_data['question']}**"
