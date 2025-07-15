@@ -75,19 +75,18 @@ class JeopardyGameView(discord.ui.View):
         self._selected_value = None # Stores the value selected by the user
 
     def add_board_components(self):
-        """Dynamically adds dropdowns (selects) for categories to the view."""
+        """
+        Dynamically adds dropdowns (selects) for categories to the view.
+        Strictly limits to 5 dropdowns on row 0 for debugging purposes.
+        """
         self.clear_items()  # Clear existing items before rebuilding the board
 
         categories_to_process = self.game.normal_jeopardy_data.get("normal_jeopardy", [])
 
-        dropdowns_added = 0
+        dropdowns_added_to_view = 0 # Track actual dropdowns added
 
-        for i, category_data in enumerate(categories_to_process):
-            # Calculate the row for the current dropdown. Each row can hold up to 5 items.
-            # Discord UI views support up to 5 rows (0-4).
-            current_row = dropdowns_added // 5
-            if current_row > 4: # Prevent adding items beyond Discord's max row limit (0-4)
-                print(f"Warning: Exceeded maximum number of rows for Discord UI. Skipping category: {category_data['category']}")
+        for category_data in categories_to_process:
+            if dropdowns_added_to_view >= 5: # Strictly limit to 5 dropdowns total for now
                 break
 
             category_name = category_data["category"]
@@ -97,8 +96,9 @@ class JeopardyGameView(discord.ui.View):
             ]
 
             if options: # Only add a dropdown if there are available questions in the category
-                self.add_item(CategoryValueSelect(category_name, options, f"Pick for {category_name}", row=current_row))
-                dropdowns_added += 1
+                # Always add to row 0 for this debugging step
+                self.add_item(CategoryValueSelect(category_name, options, f"Pick for {category_name}", row=0))
+                dropdowns_added_to_view += 1
 
     async def on_timeout(self):
         """Called when the view times out due to inactivity."""
