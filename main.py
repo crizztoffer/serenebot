@@ -26,14 +26,14 @@ active_jeopardy_games = {} # Re-introducing this for the new Jeopardy game
 
 class CategoryValueSelect(discord.ui.Select):
     """A dropdown (select) for choosing a question's value within a specific category."""
-    def __init__(self, category_name: str, options: list[discord.SelectOption], placeholder: str):
+    def __init__(self, category_name: str, options: list[discord.SelectOption], placeholder: str, row: int): # Added row parameter
         super().__init__(
             placeholder=placeholder,
             min_values=1,
             max_values=1,
             options=options,
-            custom_id=f"jeopardy_select_{category_name.replace(' ', '_').lower()}",
-            row=0 # Explicitly set row to 0 for all category dropdowns
+            custom_id=f"jeopardy_select_{category_name.replace(' ', '_').lower()}_{row}", # Add row to custom_id for uniqueness
+            row=row # Use the passed row
         )
         self.category_name = category_name # Store category name for later use
 
@@ -80,12 +80,15 @@ class JeopardyGameView(discord.ui.View):
 
         categories_to_process = self.game.normal_jeopardy_data.get("normal_jeopardy", [])
 
-        # Add category dropdowns, but limit to 5 dropdowns total
         dropdowns_added = 0
 
-        for category_data in categories_to_process:
-            if dropdowns_added >= 5:
-                break  # Do not exceed 5 dropdowns total
+        for i, category_data in enumerate(categories_to_process):
+            # Calculate the row for the current dropdown. Each row can hold up to 5 items.
+            # Discord UI views support up to 5 rows (0-4).
+            current_row = dropdowns_added // 5
+            if current_row > 4: # Prevent adding items beyond Discord's max row limit (0-4)
+                print(f"Warning: Exceeded maximum number of rows for Discord UI. Skipping category: {category_data['category']}")
+                break
 
             category_name = category_data["category"]
             options = [
@@ -94,7 +97,7 @@ class JeopardyGameView(discord.ui.View):
             ]
 
             if options: # Only add a dropdown if there are available questions in the category
-                self.add_item(CategoryValueSelect(category_name, options, f"Pick for {category_name}"))
+                self.add_item(CategoryValueSelect(category_name, options, f"Pick for {category_name}", row=current_row))
                 dropdowns_added += 1
 
     async def on_timeout(self):
@@ -734,7 +737,7 @@ async def serene_story_command(interaction: discord.Interaction):
         """
 
         chat_history = []
-        chat_history.push({"role": "user", "parts": [{"text": gemini_prompt}]})
+        chat_history.append({"role": "user", "parts": [{"text": gemini_prompt}]})
         
         # Define the response schema for structured JSON output from Gemini
         payload = {
