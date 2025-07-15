@@ -26,21 +26,52 @@ active_jeopardy_games = {}
 
 # --- Jeopardy Game Classes ---
 
-class JeopardyQuestionButton(discord.ui.Button):
-    """Represents a single selectable question on the Jeopardy board."""
-    def __init__(self, category_name: str, question_data: dict, row: int):
-        # The label will be the dollar value of the question
-        super().__init__(style=discord.ButtonStyle.secondary, label=f"${question_data['value']}", row=row)
-        self.category_name = category_name
-        self.question_data = question_data
-        self.value = question_data['value'] # Store value for easy access
+class CategoryValueSelect(discord.ui.Select):
+    """A dropdown (select) for choosing a question's value within a specific category."""
+    def __init__(self, category_name: str, options: list[discord.SelectOption], placeholder: str):
+        super().__init__(
+            placeholder=placeholder,
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id=f"jeopardy_select_{category_name.replace(' ', '_').lower()}"
+        )
+        self.category_name = category_name # Store category name for later use
 
     async def callback(self, interaction: discord.Interaction):
-        """Handles a click on a Jeopardy question button."""
+        """Handles a selection from the dropdown."""
         view: JeopardyGameView = self.view
-        game: JeopardyGame = view.game # Get the JeopardyGame instance from the view
+        game: JeopardyGame = view.game
 
-        # Acquire a lock to prevent race conditions if multiple users click at once
+        # Store the selected category and value in the view's state
+        selected_value_str = self.values[0] # The selected value is always a string from SelectOption
+        selected_value = int(selected_value_str) # Convert back to int
+
+        view._selected_category = self.category_name
+        view._selected_value = selected_value
+        
+        # Enable the "Pick Question" button once a selection is made
+        for item in view.children:
+            if isinstance(item, PickQuestionButton):
+                item.disabled = False
+                break
+        
+        # Respond to the interaction by editing the message to update the view
+        # This makes the "Pick Question" button clickable
+        await interaction.response.edit_message(view=view)
+
+class PickQuestionButton(discord.ui.Button):
+    """A button to confirm the selection of a Jeopardy question."""
+    def __init__(self):
+        # The button is initially disabled until a question is selected via dropdown
+        super().__init__(style=discord.ButtonStyle.green, label="Pick Question", disabled=True, row=4) # Placed on row 4
+
+    async def callback(self, interaction: discord.Interaction):
+        """Handles the click on the 'Pick Question' button."""
+        view: JeopardyGameView = self.view
+        game: JeopardyGame = view.game
+
+        # Acquire a lock to prevent multiple simultaneous question selections
         async with game.answer_lock:
             if game.game_over:
                 await interaction.response.send_message("The game is over!", ephemeral=True)
@@ -54,99 +85,120 @@ class JeopardyQuestionButton(discord.ui.Button):
                 await interaction.response.send_message("A question is already active. Please answer it first!", ephemeral=True)
                 return
             
-            if self.question_data["guessed"]:
-                await interaction.response.send_message("This question has already been guessed!", ephemeral=True)
+            # Retrieve the selected category and value from the view's state
+            selected_category = view._selected_category
+            selected_value = view._selected_value
+
+            if not selected_category or selected_value is None:
+                await interaction.response.send_message("Please select a category and value first using the dropdowns!", ephemeral=True)
                 return
 
-            # Mark the button as disabled and change style immediately
-            self.disabled = True
-            self.style = discord.ButtonStyle.grey # A greyed-out style for guessed questions
-            # Update the message that holds this button to reflect its new state
-            # This is handled by game.present_question which will edit the main board message
+            # Find the actual question data from the game's board data
+            question_data = None
+            categories_in_current_phase = []
+            if game.game_phase == "NORMAL_JEOPARDY_SELECTION":
+                categories_in_current_phase = game.board_data.get("normal_jeopardy", [])
+            elif game.game_phase == "DOUBLE_JEOPARDY_SELECTION":
+                categories_in_current_phase = game.board_data.get("double_jeopardy", [])
 
-            # Defer the interaction response to allow time for bot to present question
-            await interaction.response.defer()
+            for cat_data in categories_in_current_phase:
+                if cat_data["category"] == selected_category:
+                    for q_data in cat_data["questions"]:
+                        if q_data["value"] == selected_value and not q_data["guessed"]:
+                            question_data = q_data
+                            break
+                    if question_data:
+                        break
+            
+            if question_data:
+                # Mark the question as guessed immediately in the game state
+                question_data["guessed"] = True
+                
+                # Disable the "Pick Question" button and reset dropdowns in the view
+                for item in view.children:
+                    if isinstance(item, PickQuestionButton):
+                        item.disabled = True # Disable the pick button
+                    if isinstance(item, CategoryValueSelect) and item.category_name == selected_category:
+                        # Remove the selected option from the dropdown
+                        item.options = [opt for opt in item.options if opt.value != str(selected_value)]
+                        if not item.options: # If no options left, disable the dropdown itself
+                            item.disabled = True
+                            item.placeholder = f"{item.category_name} (All Guessed)"
+                        else:
+                            item.placeholder = f"Pick for {item.category_name}" # Reset placeholder
+                        item.values = [] # Clear current selection in the dropdown
+                
+                # Clear the view's internal selection state
+                view._selected_category = None
+                view._selected_value = None
 
-            # Pass the category name to the question data for display purposes
-            self.question_data["category"] = self.category_name
-            await game.present_question(interaction, self.question_data)
+                # Update the message to reflect the disabled pick button and updated dropdowns
+                await interaction.response.edit_message(view=view)
 
+                # Present the selected question to the user
+                await game.present_question(interaction, question_data)
+            else:
+                # If for some reason the question is not found or already guessed (race condition)
+                await interaction.response.send_message(
+                    f"Question '{selected_category}' for ${selected_value} not found or already guessed. Please select another.",
+                    ephemeral=True
+                )
 
 class JeopardyGameView(discord.ui.View):
-    """The Discord UI View that holds the interactive Jeopardy board buttons."""
+    """The Discord UI View that holds the interactive Jeopardy board dropdowns and pick button."""
     def __init__(self, game: 'JeopardyGame'):
         super().__init__(timeout=300) # View times out after 5 minutes of inactivity
         self.game = game # Reference to the JeopardyGame instance
+        self._selected_category = None # Stores the category selected by the user
+        self._selected_value = None # Stores the value selected by the user
 
     def add_buttons_from_board(self):
-        """Dynamically adds buttons to the view based on the game's board data.
-           Buttons are arranged to represent a Jeopardy board grid.
-        """
-        self.clear_items() # Clear existing items before rebuilding
+        """Dynamically adds dropdowns (selects) for categories and the 'Pick Question' button to the view."""
+        self.clear_items() # Clear existing items before rebuilding the board
 
-        # Determine which categories and values to display based on the current game phase
         categories_to_display = []
-        value_tiers = []
-
         if self.game.game_phase == "NORMAL_JEOPARDY_SELECTION":
-            if "normal_jeopardy" in self.game.board_data:
-                categories_to_display = self.game.board_data["normal_jeopardy"]
-                value_tiers = [200, 400, 600, 800, 1000]
+            categories_to_display = self.game.board_data.get("normal_jeopardy", [])
         elif self.game.game_phase == "DOUBLE_JEOPARDY_SELECTION":
-            if "double_jeopardy" in self.game.board_data:
-                categories_to_display = self.game.board_data["double_jeopardy"]
-                value_tiers = [400, 800, 1200, 1600, 2000] # Double Jeopardy values
+            categories_to_display = self.game.board_data.get("double_jeopardy", [])
+        else:
+            # No interactive components (dropdowns/buttons) for Final Jeopardy or other phases
+            return
 
-        # Discord UI buttons are limited to 5 rows (0-4).
-        # We will display the first 5 categories as columns, and values as rows.
-        # If there are more than 5 categories, they won't have buttons, but their status
-        # will still be reflected in the embed.
-
-        # Create a mapping for quick lookup of questions by category and value
-        question_map = {}
-        for cat_data in categories_to_display:
-            category_name = cat_data["category"]
-            question_map[category_name] = {q["value"]: q for q in cat_data["questions"]}
-
-        # Iterate through value tiers (rows)
-        for row_index, value in enumerate(value_tiers):
-            if row_index >= 5: # Ensure we don't exceed Discord's 5-row limit
-                break
-
-            # Iterate through categories (columns)
-            for col_index, category_data in enumerate(categories_to_display):
-                if col_index >= 5: # Limit to 5 categories for button display
-                    break
-
-                category_name = category_data["category"]
-                q_data = question_map.get(category_name, {}).get(value)
-
-                if q_data and not q_data["guessed"]:
-                    # Create a button for the question
-                    self.add_item(JeopardyQuestionButton(category_name, q_data, row=row_index))
-                else:
-                    # Add a disabled button or a placeholder for guessed/unavailable questions
-                    # Using a disabled button makes the grid visually consistent
-                    self.add_item(discord.ui.Button(
-                        style=discord.ButtonStyle.grey,
-                        label=" ", # Empty label for guessed/unavailable spots
-                        disabled=True,
-                        row=row_index
-                    ))
+        # Add a Select (dropdown) component for each category
+        # Discord allows up to 5 components per row. We can put up to 5 dropdowns per row.
+        # If there are more than 5 categories, they will automatically wrap to the next row.
+        # The example JSON has 6 categories in Normal Jeopardy, so they will fit into 2 rows.
         
-        # If no questions are left to display as buttons, ensure all existing buttons are disabled
-        if not any(not q["guessed"] for cat_type in ["normal_jeopardy", "double_jeopardy"] 
-                   for cat in self.game.board_data.get(cat_type, []) 
-                   for q in cat["questions"]):
-            for item in self.children:
-                item.disabled = True
-
+        for category_data in categories_to_display:
+            category_name = category_data["category"]
+            options = []
+            # Populate options with available (unguessed) question values for this category
+            for q in category_data["questions"]:
+                if not q["guessed"]:
+                    options.append(discord.SelectOption(label=f"${q['value']}", value=str(q['value'])))
+            
+            if options: # Only add a dropdown if there are available questions in the category
+                self.add_item(CategoryValueSelect(category_name, options, f"Pick for {category_name}"))
+            else:
+                # If all questions in a category are guessed, add a disabled dropdown to show its state
+                self.add_item(discord.ui.Select(
+                    placeholder=f"{category_name} (All Guessed)",
+                    options=[discord.SelectOption(label="No questions left", value="0", default=True)], # Dummy option
+                    disabled=True,
+                    custom_id=f"jeopardy_select_disabled_{category_name.replace(' ', '_').lower()}"
+                ))
+        
+        # Add the "Pick Question" button at the bottom
+        self.add_item(PickQuestionButton())
 
     async def on_timeout(self):
         """Called when the view times out due to inactivity."""
         if self.game.board_message:
+            # Edit the message to remove the interactive components and indicate timeout
             await self.game.board_message.edit(content="Jeopardy game timed out due to inactivity.", view=None, embed=None)
         if self.game.channel_id in active_jeopardy_games:
+            # Clean up the game state
             del active_jeopardy_games[self.game.channel_id]
         print(f"Jeopardy game in channel {self.game.channel_id} timed out.")
 
@@ -160,36 +212,43 @@ class JeopardyGame:
         self.board_data = None # Will store the fetched JSON data
         self.current_question = None # Stores the question currently being answered
         self.board_message = None # Stores the Discord message for the main board display
+        self.question_message = None # Stores the Discord message for the current question being asked
         self.timer_task = None # asyncio task for the countdown timer
-        self.answer_lock = asyncio.Lock() # To prevent multiple answers at once
+        self.answer_lock = asyncio.Lock() # To prevent multiple answers/selections at once
         self.game_over = False
         # Game phases:
-        # LOADING, NORMAL_JEOPARDY_SELECTION, QUESTION_ACTIVE,
-        # DOUBLE_JEOPARDY_SELECTION, FINAL_JEOPARDY_WAGER, FINAL_JEOPARDY_ACTIVE, GAME_OVER
+        # LOADING: Initial state while fetching data.
+        # NORMAL_JEOPARDY_SELECTION: Player can select questions from Normal Jeopardy.
+        # QUESTION_ACTIVE: A question is currently being presented for answer.
+        # DOUBLE_JEOPARDY_SELECTION: Player can select questions from Double Jeopardy.
+        # FINAL_JEOPARDY_WAGER: Player needs to place a wager for Final Jeopardy.
+        # FINAL_JEOPARDY_ACTIVE: Final Jeopardy question is presented for answer.
+        # GAME_OVER: Game has concluded.
         self.game_phase = "LOADING" 
 
-        # Fetch Jeopardy data from the PHP backend
+        # URL to fetch Jeopardy data from the PHP backend
         self.jeopardy_data_url = "https://serenekeks.com/serene_bot_games.php"
         
     async def load_board_data(self):
-        """Fetches Jeopardy questions from the backend."""
+        """Fetches Jeopardy questions from the backend and initializes game state."""
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(self.jeopardy_data_url) as response:
                     if response.status == 200:
                         self.board_data = await response.json()
-                        # Initialize 'guessed' status for all questions and add category name
+                        # Initialize 'guessed' status for all questions and add category name to each question
                         for category_type in ["normal_jeopardy", "double_jeopardy"]:
                             if category_type in self.board_data:
                                 for category in self.board_data[category_type]:
                                     for question_data in category["questions"]:
                                         question_data["guessed"] = False
-                                        question_data["category"] = category["category"] # Store category name in question
+                                        question_data["category"] = category["category"] # Store category name in question for easy access
                         if "final_jeopardy" in self.board_data:
                             self.board_data["final_jeopardy"]["guessed"] = False
+                            # Ensure Final Jeopardy also has a category name for display
                             self.board_data["final_jeopardy"]["category"] = self.board_data["final_jeopardy"].get("category", "Final Jeopardy")
                         
-                        # Start in Normal Jeopardy phase
+                        # Set initial game phase to Normal Jeopardy selection
                         self.game_phase = "NORMAL_JEOPARDY_SELECTION"
                     else:
                         print(f"Error fetching Jeopardy data: HTTP Status {response.status}")
@@ -213,39 +272,41 @@ class JeopardyGame:
 
         categories_to_display = []
         if self.game_phase == "NORMAL_JEOPARDY_SELECTION":
-            embed.description += "__**Jeopardy!**__\nClick a question's value to select it!"
+            embed.description += "__**Jeopardy!**__\nSelect a category and value from the dropdowns below, then click 'Pick Question'!"
             categories_to_display = self.board_data.get("normal_jeopardy", [])
         elif self.game_phase == "DOUBLE_JEOPARDY_SELECTION":
-            embed.description += "__**Double Jeopardy!**__\nClick a question's value to select it!"
+            embed.description += "__**Double Jeopardy!**__\nSelect a category and value from the dropdowns below, then click 'Pick Question'!"
             categories_to_display = self.board_data.get("double_jeopardy", [])
         elif self.game_phase in ["FINAL_JEOPARDY_WAGER", "FINAL_JEOPARDY_ACTIVE"]:
             embed.description += "__**Final Jeopardy!**__\n"
             embed.color = discord.Color.purple() # Change color for Final Jeopardy
-            # No board display for final jeopardy, only the question is presented separately
-            return embed # Return early as no category fields are needed for Final Jeopardy board
+            # No board display fields for Final Jeopardy, as the question is presented separately
+            return embed 
 
-        # Add category fields for Normal/Double Jeopardy
-        # Limit to 5 categories for visual consistency with the 5 rows of buttons
+        # Add category fields for Normal/Double Jeopardy for text-based overview
+        # This is separate from the interactive dropdowns in the View.
+        # Limit to 5 categories for visual consistency, as Discord embeds display 3 fields per row.
         for i, category in enumerate(categories_to_display):
-            if i >= 5: # Only display up to 5 categories in the embed fields to match button rows
+            if i >= 5: # Display up to 5 categories in the embed fields
                 break
             category_name = category["category"]
             questions_display = []
             for q in category["questions"]:
                 if q["guessed"]:
-                    questions_display.append(f"~~${q['value']}~~")
+                    questions_display.append(f"~~${q['value']}~~") # Strikethrough guessed questions
                 else:
                     questions_display.append(f"${q['value']}")
             embed.add_field(name=category_name, value="\n".join(questions_display), inline=True)
         
         # Add blank fields for spacing if the number of displayed categories is not a multiple of 3
+        # This helps maintain a consistent grid-like layout in Discord's embed display
         while len(embed.fields) % 3 != 0:
             embed.add_field(name="\u200b", value="\u200b", inline=True)
 
         return embed
 
     def _normalize_answer(self, answer_text: str) -> str:
-        """Normalizes an answer string for comparison."""
+        """Normalizes an answer string for comparison by lowercasing and removing common prefixes/punctuation."""
         normalized = answer_text.lower()
         prefixes = ["what is ", "who is ", "where is ", "when is ", "what are ", "who are ", "where are ", "when are "]
         for prefix in prefixes:
@@ -253,7 +314,9 @@ class JeopardyGame:
                 normalized = normalized[len(prefix):]
                 break
 
+        # Remove punctuation (keep alphanumeric characters and spaces)
         normalized = ''.join(char for char in normalized if char.isalnum() or char.isspace())
+        # Replace multiple spaces with a single space and strip leading/trailing whitespace
         normalized = ' '.join(normalized.split()).strip()
         return normalized
 
@@ -262,8 +325,8 @@ class JeopardyGame:
         self.current_question = question_data
         self.game_phase = "QUESTION_ACTIVE"
         
-        # Edit the main board message to remove buttons while question is active
-        # The embed will still show the board state, but buttons will be gone
+        # When a question is active, remove the interactive view (dropdowns/buttons) from the board message
+        # The embed will still show the board state, but interaction is paused.
         if self.board_message:
             await self.board_message.edit(view=None)
 
@@ -274,48 +337,49 @@ class JeopardyGame:
                         "Type your answer in the chat, starting with 'what is', 'who is', 'what are', etc.",
             color=discord.Color.blue()
         )
-        # Send a new message for the question, separate from the board
+        # Send a new message specifically for the question, separate from the main board message
         self.question_message = await interaction.channel.send(embed=question_embed)
 
-        # Start the timer
+        # Start the countdown timer for the question
         self.timer_task = bot.loop.create_task(
             self._question_timer(interaction.channel, question_data['seconds'], question_data['value'])
         )
 
     async def _question_timer(self, channel: discord.TextChannel, seconds: int, value: int):
-        """Countdown timer for a question."""
+        """Manages the countdown timer for an active question."""
         try:
-            await asyncio.sleep(seconds)
+            await asyncio.sleep(seconds) # Wait for the specified number of seconds
             
-            async with self.answer_lock:
+            async with self.answer_lock: # Acquire lock to ensure no race conditions with answer handling
                 if self.current_question and not self.current_question["guessed"]:
+                    # If time runs out and question hasn't been guessed
                     self.current_question["guessed"] = True
-                    self.score -= value
+                    self.score -= value # Deduct points for incorrect/no answer
                     await channel.send(
                         f"Time's up! The correct answer was **{self.current_question['answer']}**. "
                         f"You lost ${value}. Your score is now **${self.score}**."
                     )
-                    self.current_question = None # Clear current question
+                    self.current_question = None # Clear the currently active question
+                    
                     # Delete the question message after timeout
                     if self.question_message:
                         try:
                             await self.question_message.delete()
                         except discord.NotFound:
-                            pass
+                            pass # Message might have already been deleted
                         self.question_message = None
                     
-                    # Re-evaluate game phase and update board
+                    # Re-evaluate game phase and update the board display
                     self._check_game_progression(channel)
                     if not self.game_over: # Only update board if game is still active
                         await self.update_board_message() 
         except asyncio.CancelledError:
-            pass # Timer was cancelled because an answer was received
+            pass # The timer was cancelled because the user provided an answer in time
 
     async def handle_answer(self, message: discord.Message, user_answer: str):
-        """Handles a user's attempt to answer a question."""
-        async with self.answer_lock:
+        """Handles a user's attempt to answer an active question."""
+        async with self.answer_lock: # Acquire lock to ensure only one answer is processed
             if not self.current_question or self.game_phase != "QUESTION_ACTIVE":
-                # This should ideally not be reached if on_message checks are correct
                 await message.channel.send("There is no active question right now or it's not the answering phase.", ephemeral=True)
                 return
 
@@ -339,11 +403,11 @@ class JeopardyGame:
                     f"You lost ${value}. Your score is now **${self.score}**."
                 )
             
-            self.current_question["guessed"] = True
-            self.current_question = None
+            self.current_question["guessed"] = True # Mark the question as guessed
+            self.current_question = None # Clear the active question
             
             if self.timer_task and not self.timer_task.done():
-                self.timer_task.cancel()
+                self.timer_task.cancel() # Cancel the timer as an answer was received
             
             await message.channel.send(response_content) # Send public response
             # Delete the question message after answer
@@ -351,7 +415,7 @@ class JeopardyGame:
                 try:
                     await self.question_message.delete()
                 except discord.NotFound:
-                    pass # Message already deleted or not found
+                    pass # Message might have already been deleted
                 self.question_message = None
 
             # Re-evaluate game phase and update board
@@ -360,22 +424,22 @@ class JeopardyGame:
                 await self.update_board_message()
 
     async def update_board_message(self):
-        """Updates the main board message with the current state and buttons."""
+        """Updates the main board message with the current state and interactive components."""
         if self.board_message:
             new_view = JeopardyGameView(self)
-            new_view.add_buttons_from_board()
+            new_view.add_buttons_from_board() # Rebuild the view with updated dropdowns/buttons
             await self.board_message.edit(embed=self._get_board_display_embed(), view=new_view)
 
     def _are_all_questions_guessed_in_category_type(self, category_type: str) -> bool:
-        """Checks if all questions in a given category type (normal/double) have been guessed."""
+        """Checks if all questions in a given category type (e.g., 'normal_jeopardy') have been guessed."""
         if category_type not in self.board_data:
-            return True # If the category type doesn't exist, consider it "guessed"
+            return True # If the category type doesn't exist in the data, consider it "guessed"
         
         for category in self.board_data[category_type]:
             for q in category["questions"]:
                 if not q["guessed"]:
-                    return False
-        return True
+                    return False # Found an unguessed question
+        return True # All questions in this category type are guessed
 
     def _check_game_progression(self, channel: discord.TextChannel):
         """Checks if the game should transition to the next phase (Double Jeopardy, Final Jeopardy, or end)."""
@@ -392,16 +456,17 @@ class JeopardyGame:
             
             self.game_phase = "FINAL_JEOPARDY_WAGER"
             bot.loop.create_task(channel.send("__**All Double Jeopardy questions guessed! Prepare for Final Jeopardy!**__"))
-            bot.loop.create_task(self.start_final_jeopardy(channel))
+            bot.loop.create_task(self.start_final_jeopardy(channel)) # Start Final Jeopardy sequence
             return
 
         # If all normal and double jeopardy questions are guessed, and Final Jeopardy exists and hasn't been guessed
+        # This condition is primarily for ensuring Final Jeopardy starts if the previous transitions somehow missed it.
         if self._are_all_questions_guessed_in_category_type("normal_jeopardy") and \
            self._are_all_questions_guessed_in_category_type("double_jeopardy") and \
            "final_jeopardy" in self.board_data and \
            not self.board_data["final_jeopardy"]["guessed"]:
             # This case is primarily handled by the transition to FINAL_JEOPARDY_WAGER and then ACTIVE
-            pass
+            pass # Do nothing, as the transition should have already been triggered.
         
         # If all questions (including Final Jeopardy if present) are guessed, and game is not already over
         if self._are_all_questions_guessed_in_category_type("normal_jeopardy") and \
@@ -409,14 +474,14 @@ class JeopardyGame:
            ("final_jeopardy" not in self.board_data or self.board_data["final_jeopardy"]["guessed"]) and \
            not self.game_over:
             
-            self.game_over = True
+            self.game_over = True # Mark game as over
             bot.loop.create_task(channel.send(
                 f"The Jeopardy game has ended! Your final score is **${self.score}**."
             ))
             if self.channel_id in active_jeopardy_games:
-                del active_jeopardy_games[self.channel_id]
+                del active_jeopardy_games[self.channel_id] # Remove game from active list
             if self.board_message:
-                bot.loop.create_task(self.board_message.edit(view=None)) # Remove buttons from board
+                bot.loop.create_task(self.board_message.edit(view=None)) # Remove components from board message
 
     async def start_final_jeopardy(self, channel: discord.TextChannel):
         """Initiates the Final Jeopardy round."""
@@ -431,7 +496,7 @@ class JeopardyGame:
         self.current_question = final_jeopardy_data
         self.game_phase = "FINAL_JEOPARDY_WAGER"
         
-        # Prompt for wager
+        # Prompt the player to enter their wager for Final Jeopardy
         await channel.send(
             f"It's **Final Jeopardy!** Your current score is **${self.score}**. "
             "Please enter your wager using `/jeopardy_wager amount:VALUE`."
@@ -460,7 +525,7 @@ class JeopardyGame:
         await interaction.response.send_message(f"You have wagered **${wager}** for Final Jeopardy.", ephemeral=True)
 
         self.game_phase = "FINAL_JEOPARDY_ACTIVE"
-        # Now present the Final Jeopardy question
+        # Now present the Final Jeopardy question after the wager is placed
         question_embed = discord.Embed(
             title=f"Final Jeopardy: {self.current_question['category']}",
             description=f"**Question:** {self.current_question['question']}\n\n"
@@ -483,6 +548,7 @@ class JeopardyGame:
             async with self.answer_lock:
                 if self.current_question and not self.current_question["guessed"]:
                     self.current_question["guessed"] = True
+                    # For Final Jeopardy, score is only affected by correct/incorrect answer, not timeout
                     await channel.send(
                         f"Time's up for Final Jeopardy! The correct answer was **{self.current_question['answer']}**."
                     )
@@ -491,7 +557,7 @@ class JeopardyGame:
                     if self.channel_id in active_jeopardy_games:
                         del active_jeopardy_games[self.channel_id]
                     if self.board_message:
-                        await self.board_message.edit(view=None)
+                        await self.board_message.edit(view=None) # Remove components
         except asyncio.CancelledError:
             pass # Timer was cancelled because an answer was received
 
@@ -539,11 +605,11 @@ class JeopardyGame:
                     pass
                 self.question_message = None
 
-            self.game_over = True
+            self.game_over = True # Game ends after Final Jeopardy answer
             if self.channel_id in active_jeopardy_games:
                 del active_jeopardy_games[self.channel_id]
             if self.board_message:
-                await self.board_message.edit(view=None)
+                await self.board_message.edit(view=None) # Remove components from board
 
 
 # --- Tic-Tac-Toe Game Classes (unchanged from previous version) ---
@@ -554,7 +620,7 @@ class TicTacToeButton(discord.ui.Button):
         super().__init__(style=discord.ButtonStyle.secondary, label=player_mark, row=row)
         self.row = row
         self.col = col
-        self.player_mark = player_mark # This will be '⬜', 'X', or 'O'
+        self.player_mark = player.mark # This will be '⬜', 'X', or 'O'
 
     async def callback(self, interaction: discord.Interaction):
         """Handle button click for a Tic-Tac-Toe square."""
@@ -577,7 +643,7 @@ class TicTacToeButton(discord.ui.Button):
         # Set button style based on player mark
         if self.player_mark == "X":
             self.style = discord.ButtonStyle.primary # Blue for X
-        else: # self.player_mark == "O"
+        else: # self.player.mark == "O"
             self.style = discord.ButtonStyle.danger # Red for O
             
         self.disabled = True
@@ -776,14 +842,14 @@ class TicTacToeView(discord.ui.View):
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
-                del active_tictactoe_games[interaction.channel_id]
-            elif self._check_draw():
+                del active_tictactoe_games[interaction.channel.id]
+            elif view._check_draw():
                 await interaction.edit_original_response(
                     content="It's a **draw!** 🤝",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
-                del active_tictactoe_games[interaction.channel_id]
+                del active_tictactoe_games[interaction.channel.id]
             else:
                 # Switch player back to human
                 self.current_player = "X"
@@ -1253,7 +1319,7 @@ async def serene_game_command(interaction: discord.Interaction, game_type: str):
 
         if jeopardy_game.board_data and jeopardy_game.game_phase != "GAME_OVER":
             active_jeopardy_games[interaction.channel.id] = jeopardy_game
-            # Send the initial Jeopardy board with buttons
+            # Send the initial Jeopardy board with dropdowns and a pick button
             jeopardy_view = JeopardyGameView(jeopardy_game)
             jeopardy_view.add_buttons_from_board()
             game_message = await interaction.channel.send(embed=jeopardy_game._get_board_display_embed(), view=jeopardy_view)
@@ -1270,7 +1336,7 @@ async def serene_game_command(interaction: discord.Interaction, game_type: str):
             ephemeral=True
         )
 
-# --- REMOVED /jeopardy_select command (now handled by buttons) ---
+# --- REMOVED /jeopardy_select command (now handled by dropdowns and pick button) ---
 
 # --- NEW /jeopardy_wager command (for Final Jeopardy) ---
 @bot.tree.command(name="jeopardy_wager", description="Place your wager for Final Jeopardy.")
@@ -1288,7 +1354,7 @@ async def jeopardy_wager_command(interaction: discord.Interaction, amount: int):
     game = active_jeopardy_games[interaction.channel.id]
 
     if interaction.user.id != game.player.id:
-        await interaction.followup.send("You are not the active player for this Jeopardy game.", ephemeral=True)
+        await interaction.response.send_message("You are not the active player for this Jeopardy game.", ephemeral=True)
         return
     
     if game.game_phase != "FINAL_JEOPARDY_WAGER":
