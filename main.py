@@ -136,19 +136,16 @@ class CategoryValueSelect(discord.ui.Select):
             finally:
                 game.current_question = None # Clear current question state
 
-                # 4) Re-display dropdowns and update the message
-                # Create a NEW JeopardyGameView instance to ensure it's fresh
+                # 4) Send a NEW message with the dropdowns
                 new_jeopardy_view = JeopardyGameView(game)
                 new_jeopardy_view.add_board_components() # Rebuilds the view with updated options (guessed questions removed)
 
-                if game.board_message: # Ensure board_message exists before editing
-                    await game.board_message.edit(
-                        content=f"**{game.player.display_name}**'s Score: **${game.score}**\n\n"
-                                "Select a category and value from the dropdowns below!", # Restore original content with updated score
-                        view=new_jeopardy_view # Assign the new view
-                    )
-                else:
-                    print("Warning: game.board_message was not found, could not re-enable view.")
+                # Send a new message and update game.board_message to point to it
+                game.board_message = await interaction.channel.send(
+                    content=f"**{game.player.display_name}**'s Score: **${game.score}**\n\n"
+                            "Select a category and value from the dropdowns below!",
+                    view=new_jeopardy_view
+                )
 
         else:
             # If for some reason the question is not found or already guessed (race condition)
