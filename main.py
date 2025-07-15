@@ -138,40 +138,40 @@ class JeopardyGameView(discord.ui.View):
 
     def add_buttons_from_board(self):
         """Dynamically adds dropdowns (selects) for categories and the 'Pick Question' button to the view."""
-        self.clear_items() # Clear existing items before rebuilding the board
+        # Create a new list of items for the view
+        new_items = []
 
         categories_to_process = []
         if self.game.game_phase == "NORMAL_JEOPARDY_SELECTION":
-            categories_to_process = self.game.board_data.get("normal_jeopardy", [])
+            # Limit to the first 5 categories for dropdown display
+            categories_to_process = self.game.board_data.get("normal_jeopardy", [])[:5]
         elif self.game.game_phase == "DOUBLE_JEOPARDY_SELECTION":
-            categories_to_process = self.game.board_data.get("double_jeopardy", [])
+            # Limit to the first 5 categories for dropdown display
+            categories_to_process = self.game.board_data.get("double_jeopardy", [])[:5]
         else:
             # No interactive components (dropdowns/buttons) for Final Jeopardy or other phases
+            self.children = [] # Ensure no items are present
             return
 
-        # Add up to 5 category dropdowns to the first row (row 0)
-        items_on_row_0 = 0
+        # Add category dropdowns to the new_items list. Each will have row=0.
         for category_data in categories_to_process:
-            if items_on_row_0 >= 5: # Ensure we only add a maximum of 5 dropdowns to row 0
-                break
-            
             category_name = category_data["category"]
             options = []
-            # Populate options with available (unguessed) question values for this category
             for q in category_data["questions"]:
                 if not q["guessed"]:
                     options.append(discord.SelectOption(label=f"${q['value']}", value=str(q['value'])))
             
-            # Only add a dropdown if there are available questions in this category
-            if options: 
-                self.add_item(CategoryValueSelect(category_name, options, f"Pick for {category_name}"))
-                items_on_row_0 += 1 # Increment counter for items on row 0
+            if options:
+                new_items.append(CategoryValueSelect(category_name, options, f"Pick for {category_name}"))
         
-        # Add the "Pick Question" button to row 1 IF there are any category selects
-        # This button is now explicitly on row 1, ensuring it doesn't conflict with row 0.
+        # Add the "Pick Question" button to the new_items list if there are any category selects.
+        # This button is explicitly on row=1.
         if (self.game.game_phase == "NORMAL_JEOPARDY_SELECTION" or 
-            self.game.game_phase == "DOUBLE_JEOPARDY_SELECTION") and items_on_row_0 > 0:
-            self.add_item(PickQuestionButton())
+            self.game.game_phase == "DOUBLE_JEOPARDY_SELECTION") and len(new_items) > 0: # Check if any dropdowns were added
+            new_items.append(PickQuestionButton())
+
+        # Replace the view's children with the newly constructed list
+        self.children = new_items
 
     async def on_timeout(self):
         """Called when the view times out due to inactivity."""
@@ -1136,7 +1136,7 @@ async def serene_story_command(interaction: discord.Interaction):
         - "kissed Crizz P. so fast that he [verb_past_tense]"
         - "spun around so fast that they [verb_past_tense]"
         "vomitted so loudly that they [verb_past_tense]"
-        "sand-blasted out a power-shart so strong, that they [verb_past_tense]"
+        "sand-blastd out a power-shart so strong, that they [verb_past_tense]"
         "slipped off the roof above—and with a thump—they [verb_past_tense]"
 
         Avoid verbs that are passive, imply a state of being, or require complex grammatical structures (e.g., phrasal verbs that depend heavily on prepositions) to make sense in these direct contexts. Focus on verbs that are direct and complete actions.
