@@ -185,6 +185,41 @@ class GameSelect(discord.ui.Select):
         selected_game = self.values[0]
 
         if selected_game == "Tic-Tac-Toe":
+            # --- START DEBUGGING CODE ---
+            # Get the bot's Member object for the current guild
+            me = interaction.guild.me 
+            # Get permissions the bot has in the specific channel where the interaction occurred
+            permissions = interaction.channel.permissions_for(me)
+            
+            # Check for 'send_messages' permission
+            if not permissions.send_messages:
+                print(f"DEBUG: Bot does NOT have 'send_messages' in channel {interaction.channel.name} ({interaction.channel.id})")
+                await interaction.response.send_message(
+                    "I don't have permission to send messages in this channel! Please check my permissions.",
+                    ephemeral=True
+                )
+                return # Crucial: Stop execution if permission is missing
+            
+            # Check for 'embed_links' permission
+            if not permissions.embed_links:
+                print(f"DEBUG: Bot does NOT have 'embed_links' in channel {interaction.channel.name} ({interaction.channel.id})")
+                await interaction.response.send_message(
+                    "I don't have permission to embed links in this channel! My game board won't show correctly.",
+                    ephemeral=True
+                )
+                # Note: We don't return here, as the game might still be playable, just without the nice embed.
+                # However, the current implementation heavily relies on the embed for the board display.
+                # If this error persists, consider making this a 'return' as well.
+            
+            # Check for 'use_external_emojis' permission (for X and O emojis)
+            if not permissions.use_external_emojis:
+                print(f"DEBUG: Bot does NOT have 'use_external_emojis' in channel {interaction.channel.name} ({interaction.channel.id})")
+                await interaction.response.send_message(
+                    "I don't have permission to use external emojis in this channel! The X and O marks might not display correctly.",
+                    ephemeral=True
+                )
+            # --- END DEBUGGING CODE ---
+
             # Check if a game is already active in this channel
             if interaction.channel.id in active_tictactoe_games:
                 await interaction.response.send_message(
