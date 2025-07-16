@@ -739,7 +739,7 @@ class TicTacToeButton(discord.ui.Button):
                 await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
             await interaction.edit_original_response(
-                content=f"🎉 **{winner_player.display_name} wins!** 🎉",
+                content=f"🎉 **{winner_player.display_name} wins!** �",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -776,7 +776,7 @@ class TicTacToeView(discord.ui.View):
         super().__init__(timeout=300) # Game times out after 5 minutes of inactivity
         self.players = {"X": player_x, "O": player_o}
         self.current_player = "X"
-        self.board = [[" ", " ", " "], [" ", " ", " "], [" ", " ", " "]] # Internal board uses " " for empty
+        self.board = [[" ", " ", " সরবরাহ"]] # Internal board uses " " for empty
         self.message = None # To store the message containing the board
 
         self._create_board()
@@ -930,7 +930,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** �",
+                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -1588,10 +1588,13 @@ class BlackjackGameView(discord.ui.View):
         self.game.game_message = new_message # Update the game's message reference
 
     def _end_game_buttons(self):
-        """Disables all buttons in the view."""
-        for item in self.children:
-            item.disabled = True
-        return self # Return self to update the view with disabled buttons
+        """Replaces Hit/Stay buttons with Play Again/Quit buttons."""
+        self.clear_items() # Remove all existing buttons
+
+        # Add "Play Again" button
+        self.add_item(discord.ui.Button(label="Play Again", style=discord.ButtonStyle.green, custom_id="blackjack_play_again", row=0))
+        # Add "Quit" button
+        self.add_item(discord.ui.Button(label="Quit", style=discord.ButtonStyle.red, custom_id="blackjack_quit", row=0))
 
     async def on_timeout(self):
         """Called when the view times out due to inactivity."""
@@ -1621,12 +1624,10 @@ class BlackjackGameView(discord.ui.View):
 
         if player_value > 21:
             # Player busts
+            self._end_game_buttons() # Modify the current view to show Play Again/Quit
             final_embed = self.game._create_game_embed(reveal_dealer=True, result_message="BUST! Serene wins.")
-            await self._update_game_message(interaction, final_embed, view_to_use=None) # Remove buttons
-            await update_user_kekchipz(interaction.guild.id, interaction.user.id, -50) # Player loses kekchipz
-            self._end_game_buttons() # Disable buttons in current view instance
-            del active_blackjack_games[self.game.channel_id]
-            self.stop() # Stop the view
+            await self._update_game_message(interaction, final_embed, view_to_use=self) # Pass the modified view
+            # No del active_blackjack_games or self.stop() here.
         else:
             # Player can hit again - send new message with updated embed
             new_embed = self.game._create_game_embed()
@@ -1671,12 +1672,49 @@ class BlackjackGameView(discord.ui.View):
             kekchipz_change = 0 # No change for a push
 
         final_embed = self.game._create_game_embed(reveal_dealer=True, result_message=result_message)
-        await self._update_game_message(interaction, final_embed, view_to_use=None) # Remove buttons
-        await update_user_kekchipz(interaction.guild.id, interaction.user.id, kekchipz_change)
+        self._end_game_buttons() # Modify the current view to show Play Again/Quit
+        await self._update_game_message(interaction, final_embed, view_to_use=self) # Pass the modified view
+        # No del active_blackjack_games or self.stop() here.
+
+    @discord.ui.button(label="Play Again", style=discord.ButtonStyle.green, custom_id="blackjack_play_again", row=0)
+    async def play_again_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.game.player.id:
+            await interaction.response.send_message("This is not your game!", ephemeral=True)
+            return
         
-        self._end_game_buttons() # Disable buttons in current view instance
-        del active_blackjack_games[self.game.channel_id] # Remove game from active games
-        self.stop() # Stop the view
+        await interaction.response.defer()
+        
+        # Clean up the old game (this view)
+        if self.game.channel_id in active_blackjack_games:
+            del active_blackjack_games[self.game.channel_id]
+        self.stop() # Stop the current view's timeout
+
+        # Create and start a new game
+        new_blackjack_game = BlackjackGame(interaction.channel.id, interaction.user)
+        await new_blackjack_game.start_game(interaction) # This will send a new message and new view
+
+    @discord.ui.button(label="Quit", style=discord.ButtonStyle.red, custom_id="blackjack_quit", row=0)
+    async def quit_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.game.player.id:
+            await interaction.response.send_message("This is not your game!", ephemeral=True)
+            return
+        
+        await interaction.response.defer()
+        
+        # Clean up the old game (this view)
+        if self.game.channel_id in active_blackjack_games:
+            del active_blackjack_games[self.game.channel_id]
+        
+        # Edit the message to remove the view (buttons) and embed
+        if self.message:
+            try:
+                await self.message.edit(content="Thanks for playing Blackjack!", view=None, embed=None)
+            except discord.errors.NotFound:
+                print("WARNING: Game message not found during quit, likely already deleted.")
+            except Exception as e:
+                print(f"WARNING: An error occurred editing game message on quit: {e}")
+        
+        self.stop() # Stop the current view's timeout
 
 
 class BlackjackGame:
