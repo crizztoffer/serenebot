@@ -1573,19 +1573,16 @@ class BlackjackGameView(discord.ui.View):
         # self.add_item(discord.ui.Button(label="Stay", style=discord.ButtonStyle.red, custom_id="blackjack_stay"))
 
     async def _update_game_message(self, interaction: discord.Interaction, embed: discord.Embed, view_to_use: discord.ui.View = None):
-        """Helper to update the main game message, deleting the old one and sending a new one."""
-        if self.message:
-            try:
-                await self.message.delete() # Delete the old message
-            except discord.errors.NotFound:
-                print("WARNING: Old game message not found during deletion, likely already deleted.")
-            except Exception as e:
-                print(f"WARNING: An error occurred deleting old game message: {e}")
-        
-        # Send a new message
-        new_message = await interaction.channel.send(embed=embed, view=view_to_use)
-        self.message = new_message # Update the view's message reference
-        self.game.game_message = new_message # Update the game's message reference
+        """Helper to update the main game message by editing the original response."""
+        try:
+            # For button interactions, the response is tied to the message the button is on.
+            # We must use edit_original_response after deferring.
+            await interaction.edit_original_response(embed=embed, view=view_to_use)
+            # After editing, self.message and self.game.game_message still point to the same object.
+        except discord.errors.NotFound:
+            print("WARNING: Original interaction message not found during edit, likely already deleted or inaccessible.")
+        except Exception as e:
+            print(f"WARNING: An error occurred editing original interaction response: {e}")
 
     def _end_game_buttons(self):
         """Disables 'Hit' and 'Stay' buttons and enables 'Play Again' button."""
@@ -1702,32 +1699,44 @@ class BlackjackGameView(discord.ui.View):
 
     @discord.ui.button(label="Play Again", style=discord.ButtonStyle.blurple, custom_id="blackjack_play_again", disabled=True)
     async def play_again_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Handles the 'Play Again' button click."""
+        """Handles the 'Play Again' button click by resetting and editing the current game message."""
         if interaction.user.id != self.game.player.id:
             await interaction.response.send_message("This is not your Blackjack game!", ephemeral=True)
             return
 
         await interaction.response.defer() # Acknowledge the interaction
 
-        # Delete the old game message to ensure a clean slate for the new game
-        if self.message:
-            try:
-                await self.message.delete()
-            except discord.errors.NotFound:
-                print("WARNING: Old game message not found during 'Play Again' cleanup, likely already deleted.")
-            except Exception as e:
-                print(f"WARNING: An error occurred deleting old game message during 'Play Again': {e}")
+        # Reset the existing game instance
+        self.game.reset_game()
+        self.game.player_hand = [self.game.deal_card(), self.game.deal_card()]
+        self.game.dealer_hand = [self.game.deal_card(), self.game.deal_card()]
 
-        # Clear the old game from active games if it's still there
-        if interaction.channel.id in active_blackjack_games:
-            del active_blackjack_games[interaction.channel.id]
+        # Create a NEW view for the reset game state
+        new_game_view = BlackjackGameView(game=self.game)
         
-        # Create and start a new Blackjack game
-        new_blackjack_game = BlackjackGame(interaction.channel.id, interaction.user)
-        # Pass the interaction object to start_game so it can use followup.send
-        await new_blackjack_game.start_game(interaction)
+        # Create the initial embed for the new game
+        initial_embed = self.game._create_game_embed()
 
-        # Stop the old view (this instance)
+        # Edit the original message with the new game state and new view
+        try:
+            await interaction.edit_original_response(embed=initial_embed, view=new_game_view)
+            # Update the active game dictionary to point to the new view
+            active_blackjack_games[self.game.channel_id] = new_game_view
+            # The new view's message reference should be set to the edited message
+            new_game_view.message = self.message # self.message is the original message that was edited
+        except discord.errors.NotFound:
+            print("WARNING: Original game message not found during 'Play Again' edit.")
+            await interaction.followup.send("Could not restart game. Please try `/serene game blackjack` again.", ephemeral=True)
+            # Clean up if the message is gone
+            if self.game.channel_id in active_blackjack_games:
+                del active_blackjack_games[self.game.channel_id]
+        except Exception as e:
+            print(f"WARNING: An error occurred during 'Play Again' edit: {e}")
+            await interaction.followup.send("An error occurred while restarting the game.", ephemeral=True)
+            if self.game.channel_id in active_blackjack_games:
+                del active_blackjack_games[self.game.channel_id]
+        
+        # Stop the OLD view (this instance of BlackjackGameView)
         self.stop()
 
 
@@ -1878,6 +1887,13 @@ class BlackjackGame:
         
         return embed
 
+    def reset_game(self):
+        """Resets the game state for a new round."""
+        self.deck = self._create_standard_deck()
+        random.shuffle(self.deck)
+        self.player_hand = []
+        self.dealer_hand = []
+        self.game_over = False
 
     async def start_game(self, interaction: discord.Interaction):
         """
@@ -1897,14 +1913,9 @@ class BlackjackGame:
         # Create the initial embed
         initial_embed = self._create_game_embed()
 
-        # Send the message and store its reference in both game and view
-        # Use interaction.followup.send() if the interaction has been deferred
-        # Otherwise, use interaction.channel.send()
-        if interaction.response.is_done():
-            self.game_message = await interaction.followup.send(embed=initial_embed, view=game_view)
-        else:
-            self.game_message = await interaction.channel.send(embed=initial_embed, view=game_view)
-        
+        # Send the message as a follow-up to the deferred slash command interaction
+        # This will be used when the game is started via /serene game blackjack
+        self.game_message = await interaction.followup.send(embed=initial_embed, view=game_view)
         game_view.message = self.game_message # Store message in the view for updates
         
         active_blackjack_games[self.channel_id] = game_view # Store the view instance, not the game itself
