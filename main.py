@@ -80,9 +80,15 @@ class CategoryValueSelect(discord.ui.Select):
 
         # Find the actual question data
         question_data = None
-        categories_in_current_phase = game.normal_jeopardy_data.get("normal_jeopardy", [])
+        
+        # Determine which data set to search based on current game phase
+        categories_to_search = []
+        if game.game_phase == "NORMAL_JEOPARDY":
+            categories_to_search = game.normal_jeopardy_data.get("normal_jeopardy", [])
+        elif game.game_phase == "DOUBLE_JEOPARDY":
+            categories_to_search = game.double_jeopardy_data.get("double_jeopardy", [])
 
-        for cat_data in categories_in_current_phase:
+        for cat_data in categories_to_search:
             if cat_data["category"] == self.category_name:
                 for q_data in cat_data["questions"]:
                     if q_data["value"] == selected_value and not q_data["guessed"]:
@@ -324,16 +330,48 @@ class CategoryValueSelect(discord.ui.Select):
                 game.current_question = None # Clear current question state
                 game.current_wager = 0 # Reset wager
 
-                # 4) Send a NEW message with the dropdowns
+                # Check if all questions in the current phase are guessed
+                current_phase_completed = False
+                if game.game_phase == "NORMAL_JEOPARDY" and game.is_all_questions_guessed("normal_jeopardy"):
+                    current_phase_completed = True
+                    game.game_phase = "DOUBLE_JEOPARDY"
+                    await interaction.channel.send(f"**Double Jeopardy!** All normal jeopardy questions have been answered. Get ready for new challenges, {game.player.display_name}!")
+                elif game.game_phase == "DOUBLE_JEOPARDY" and game.is_all_questions_guessed("double_jeopardy"):
+                    current_phase_completed = True
+                    game.game_phase = "FINAL_JEOPARDY"
+                    await interaction.channel.send(f"**Final Jeopardy!** All double jeopardy questions have been answered. Get ready for the final round, {game.player.display_name}!")
+                    # TODO: Implement Final Jeopardy wager and question logic here
+                    # For now, just end the game or wait for a specific command
+                    if game.channel.id in active_jeopardy_games:
+                        del active_jeopardy_games[game.channel.id]
+                    return # Exit if Final Jeopardy is reached, as no more dropdowns are needed
+
+                # Send a NEW message with the dropdowns for the next phase, or the current phase if not completed
                 new_jeopardy_view = JeopardyGameView(game)
                 new_jeopardy_view.add_board_components() # Rebuilds the view with updated options (guessed questions removed)
 
-                # Send a new message and update game.board_message to point to it
-                game.board_message = await interaction.channel.send(
-                    content=f"**{game.player.display_name}**'s Score: **${game.score if game.score >= 0 else f'-{abs(game.score)}'}**\n\n" # Format negative score
-                            "Select a category and value from the dropdowns below!",
-                    view=new_jeopardy_view
-                )
+                # Determine the content for the new board message based on the game phase
+                board_message_content = ""
+                if game.game_phase == "NORMAL_JEOPARDY":
+                    board_message_content = f"**{game.player.display_name}**'s Score: **${game.score if game.score >= 0 else f'-{abs(game.score)}'}**\n\n" \
+                                            "Select a category and value from the dropdowns below!"
+                elif game.game_phase == "DOUBLE_JEOPARDY":
+                    board_message_content = f"**{game.player.display_name}**'s Score: **${game.score if game.score >= 0 else f'-{abs(game.score)}'}**\n\n" \
+                                            "**Double Jeopardy!** Select a category and value from the dropdowns below!"
+                
+                if board_message_content: # Only send if there's content (i.e., not Final Jeopardy yet)
+                    game.board_message = await interaction.channel.send(
+                        content=board_message_content,
+                        view=new_jeopardy_view
+                    )
+                else:
+                    # If we reached Final Jeopardy and no board message is sent, clean up view
+                    if new_jeopardy_view.children: # If there are still components, disable them
+                        for item in new_jeopardy_view.children:
+                            item.disabled = True
+                        await interaction.channel.send("Game concluded. No more questions.", view=new_jeopardy_view)
+                    else:
+                        await interaction.channel.send("Game concluded. No more questions.")
 
         else:
             # If for some reason the question is not found or already guessed (race condition)
@@ -359,9 +397,17 @@ class JeopardyGameView(discord.ui.View):
         """
         self.clear_items()  # Clear existing items before rebuilding the board
 
-        categories_to_process = self.game.normal_jeopardy_data.get("normal_jeopardy", [])
+        # Determine which data set to use based on current game phase
+        categories_to_process = []
+        if self.game.game_phase == "NORMAL_JEOPARDY":
+            categories_to_process = self.game.normal_jeopardy_data.get("normal_jeopardy", [])
+        elif self.game.game_phase == "DOUBLE_JEOPARDY":
+            categories_to_process = self.game.double_jeopardy_data.get("double_jeopardy", [])
+        else:
+            # No dropdowns for Final Jeopardy or other phases
+            return
 
-        # Iterate through categories and assign each to a new row, limiting to 5 dropdowns total
+        # Iterate through categories and assign each to a new row, limiting to 5 rows for Discord UI
         for i, category_data in enumerate(categories_to_process):
             if i >= 5: # Discord UI has a maximum of 5 rows (0-4) for components
                 break
@@ -410,6 +456,7 @@ class NewJeopardyGame:
         self.board_message = None # To store the message containing the board UI
         self.current_question = None # Stores the question currently being presented
         self.current_wager = 0 # Stores the wager for Daily Double/Final Jeopardy
+        self.game_phase = "NORMAL_JEOPARDY" # Tracks the current phase of the game
 
     async def fetch_and_parse_jeopardy_data(self) -> bool:
         """
@@ -449,6 +496,28 @@ class NewJeopardyGame:
         except Exception as e:
             print(f"Error loading Jeopardy data: {e}")
             return False
+
+    def is_all_questions_guessed(self, phase_type: str) -> bool:
+        """
+        Checks if all questions in a given phase (normal_jeopardy or double_jeopardy)
+        have been guessed.
+        """
+        data_to_check = []
+        if phase_type == "normal_jeopardy":
+            data_to_check = self.normal_jeopardy_data.get("normal_jeopardy", [])
+        elif phase_type == "double_jeopardy":
+            data_to_check = self.double_jeopardy_data.get("double_jeopardy", [])
+        else:
+            return False # Invalid phase type
+
+        if not data_to_check: # If there's no data for this phase, consider it "completed"
+            return True
+
+        for category in data_to_check:
+            for question_data in category["questions"]:
+                if not question_data["guessed"]:
+                    return False # Found an unguessed question
+        return True # All questions are guessed
 
 
 # --- Tic-Tac-Toe Game Classes ---
@@ -495,7 +564,7 @@ class TicTacToeButton(discord.ui.Button):
         if view._check_winner():
             winner = view.players[view.current_player].display_name
             await interaction.edit_original_response(
-                content=f"🎉 **{winner} wins!** 🎉",
+                content=f"🎉 **{winner} wins!** �",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -1142,7 +1211,7 @@ async def serene_game_command(interaction: discord.Interaction, game_type: str):
             
             # MODIFIED: Formatted score for negative values on initial board message
             game_message = await interaction.channel.send(
-                content=f"**{jeopardy_game.player.display_name}**'s Score: **${jeopardy_game.score if jeopardy_game.score >= 0 else f'-${abs(jeopardy_game.score)}'}**\n\n"
+                content=f"**{jeopardy_game.player.display_name}**'s Score: **${jeopardy_game.score if jeopardy_game.score >= 0 else f'-{abs(jeopardy_game.score)}'}**\n\n"
                         "Select a category and value from the dropdowns below!",
                 view=jeopardy_view
             )
