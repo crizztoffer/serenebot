@@ -739,7 +739,7 @@ class TicTacToeButton(discord.ui.Button):
                 await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
             await interaction.edit_original_response(
-                content=f"🎉 **{winner_player.display_name} wins!** �",
+                content=f"🎉 **{winner_player.display_name} wins!** 🎉",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -747,7 +747,7 @@ class TicTacToeButton(discord.ui.Button):
         elif view._check_draw():
             await update_user_kekchipz(interaction.guild.id, interaction.user.id, 25) # Human player gets kekchipz for a draw
             await interaction.edit_original_response(
-                content="It's a **draw!** 🤝",
+                content="It's a **draw!** �",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -776,7 +776,7 @@ class TicTacToeView(discord.ui.View):
         super().__init__(timeout=300) # Game times out after 5 minutes of inactivity
         self.players = {"X": player_x, "O": player_o}
         self.current_player = "X"
-        self.board = [[" ", " ", " সরবরাহ"]] # Internal board uses " " for empty
+        self.board = [[" ", " ", " "], [" ", " ", " "], [" ", " ", " "]] # Internal board uses " " for empty
         self.message = None # To store the message containing the board
 
         self._create_board()
@@ -1573,19 +1573,31 @@ class BlackjackGameView(discord.ui.View):
         # self.add_item(discord.ui.Button(label="Stay", style=discord.ButtonStyle.red, custom_id="blackjack_stay"))
 
     async def _update_game_message(self, interaction: discord.Interaction, embed: discord.Embed, view_to_use: discord.ui.View = None):
-        """Helper to update the main game message, deleting the old one and sending a new one."""
+        """
+        Helper to update the main game message.
+        Uses edit_original_response if the interaction has already been deferred,
+        otherwise sends a new message.
+        """
         if self.message:
+            # If a message already exists, edit it
             try:
-                await self.message.delete() # Delete the old message
+                await interaction.edit_original_response(embed=embed, view=view_to_use)
             except discord.errors.NotFound:
-                print("WARNING: Old game message not found during deletion, likely already deleted.")
+                print("WARNING: Original interaction response not found, likely already edited or deleted. Sending new message.")
+                new_message = await interaction.channel.send(embed=embed, view=view_to_use)
+                self.message = new_message
+                self.game.game_message = new_message
             except Exception as e:
-                print(f"WARNING: An error occurred deleting old game message: {e}")
-        
-        # Send a new message
-        new_message = await interaction.channel.send(embed=embed, view=view_to_use)
-        self.message = new_message # Update the view's message reference
-        self.game.game_message = new_message # Update the game's message reference
+                print(f"WARNING: An error occurred editing original response: {e}. Sending new message.")
+                new_message = await interaction.channel.send(embed=embed, view=view_to_use)
+                self.message = new_message
+                self.game.game_message = new_message
+        else:
+            # If no message exists (first send), send a new one
+            new_message = await interaction.channel.send(embed=embed, view=view_to_use)
+            self.message = new_message
+            self.game.game_message = new_message
+
 
     def _end_game_buttons(self):
         """Replaces Hit/Stay buttons with Play Again/Quit buttons."""
@@ -1617,7 +1629,8 @@ class BlackjackGameView(discord.ui.View):
             await interaction.response.send_message("This is not your Blackjack game!", ephemeral=True)
             return
         
-        await interaction.response.defer() # Acknowledge the interaction
+        # Defer the interaction immediately to prevent "interaction failed"
+        await interaction.response.defer()
 
         self.game.player_hand.append(self.game.deal_card())
         player_value = self.game.calculate_hand_value(self.game.player_hand)
@@ -1640,7 +1653,8 @@ class BlackjackGameView(discord.ui.View):
             await interaction.response.send_message("This is not your Blackjack game!", ephemeral=True)
             return
         
-        await interaction.response.defer() # Acknowledge the interaction
+        # Defer the interaction immediately to prevent "interaction failed"
+        await interaction.response.defer()
 
         # Serene's turn
         player_value = self.game.calculate_hand_value(self.game.player_hand)
@@ -1708,7 +1722,7 @@ class BlackjackGameView(discord.ui.View):
         # Edit the message to remove the view (buttons) and embed
         if self.message:
             try:
-                await self.message.edit(content="Thanks for playing Blackjack!", view=None, embed=None)
+                await interaction.edit_original_response(content="Thanks for playing Blackjack!", view=None, embed=None)
             except discord.errors.NotFound:
                 print("WARNING: Game message not found during quit, likely already deleted.")
             except Exception as e:
@@ -1884,7 +1898,8 @@ class BlackjackGame:
         initial_embed = self._create_game_embed()
 
         # Send the message and store its reference in both game and view
-        self.game_message = await interaction.channel.send(embed=initial_embed, view=game_view)
+        # For the initial message, we use interaction.followup.send as the interaction was deferred
+        self.game_message = await interaction.followup.send(embed=initial_embed, view=game_view)
         game_view.message = self.game_message # Store message in the view for updates
         
         active_blackjack_games[self.channel_id] = game_view # Store the view instance, not the game itself
