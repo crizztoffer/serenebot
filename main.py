@@ -22,27 +22,48 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 active_tictactoe_games = {}
 active_jeopardy_games = {} # Re-introducing this for the new Jeopardy game
 
-# --- Helper for fuzzy matching ---
-def calculate_char_similarity(word1: str, word2: str) -> float:
+# --- Helper for fuzzy matching (MODIFIED to use Levenshtein distance) ---
+def levenshtein_distance(s1: str, s2: str) -> int:
     """
-    Calculates a percentage of character similarity between two words.
-    Compares characters at corresponding positions and divides by the length of the longer word.
+    Calculates the Levenshtein distance between two strings.
+    This is the minimum number of single-character edits (insertions, deletions, or substitutions)
+    required to change one word into the other.
+    """
+    if len(s1) < len(s2):
+        return levenshtein_distance(s2, s1)
+
+    if len(s2) == 0:
+        return len(s1)
+
+    # Initialize the first row of the distance matrix
+    previous_row = list(range(len(s2) + 1))
+    for i, c1 in enumerate(s1):
+        current_row = [i + 1]
+        for j, c2 in enumerate(s2):
+            # Calculate costs for insertion, deletion, and substitution
+            insertions = previous_row[j + 1] + 1
+            deletions = current_row[j] + 1
+            substitutions = previous_row[j] + (c1 != c2) # Cost is 0 if characters match, 1 otherwise
+            current_row.append(min(insertions, deletions, substitutions))
+        previous_row = current_row
+    return previous_row[-1]
+
+def calculate_word_similarity(word1: str, word2: str) -> float:
+    """
+    Calculates a percentage of similarity between two words using Levenshtein distance.
+    A higher percentage means more similarity.
     """
     word1_lower = word1.lower()
     word2_lower = word2.lower()
-    
-    min_len = min(len(word1_lower), len(word2_lower))
+
     max_len = max(len(word1_lower), len(word2_lower))
-    
     if max_len == 0:
-        return 100.0 if min_len == 0 else 0.0 # Both empty or one empty
-    
-    matching_chars = 0
-    for i in range(min_len):
-        if word1_lower[i] == word2_lower[i]:
-            matching_chars += 1
-            
-    return (matching_chars / max_len) * 100.0
+        return 100.0 # Both empty strings are 100% similar
+
+    dist = levenshtein_distance(word1_lower, word2_lower)
+    # Similarity is calculated as (max_length - distance) / max_length
+    similarity_percentage = ((max_len - dist) / max_len) * 100.0
+    return similarity_percentage
 
 
 # --- New Jeopardy Game UI Components ---
@@ -176,7 +197,7 @@ class CategoryValueSelect(discord.ui.Select):
                 # Send the initial Daily Double message using followup.send
                 await interaction.followup.send(
                     f"**DAILY DOUBLE!** {game.player.display_name}, you found the Daily Double!\n"
-                    f"Your current score is **${game.score if game.score >= 0 else f'-{abs(game.score)}'}**." # Format negative score
+                    f"Your current score is **{'' if game.score >= 0 else '-'}${abs(game.score)}**." # Format negative score
                 )
 
                 max_wager = max(2000, game.score) if game.score >= 0 else 2000
@@ -256,55 +277,24 @@ class CategoryValueSelect(discord.ui.Select):
                 processed_user_answer = user_raw_answer[len(determined_prefix.lower()):].strip()
                 
                 correct_answer_lower = question_data['answer'].lower()
-                correct_answer_words = correct_answer_lower.split()
-
-                # Get words from the question that are also in the correct answer
-                question_text_lower = question_data['question'].lower()
-                question_words_set = set(question_text_lower.split())
-
-                # Words from the correct answer that are considered "noisy" if they also appear in the question
-                noisy_correct_words = set(word for word in correct_answer_words if word in question_words_set)
-
+                
                 is_correct = False
-                processed_user_answer_words = processed_user_answer.split() # Keep as list for iteration
-
-                # 1. Exact match (after stripping prefix) is always correct.
+                # Check for exact match first
                 if processed_user_answer == correct_answer_lower:
                     is_correct = True
                 else:
-                    # For multi-word answers or fuzzy matching
-                    found_significant_match = False
-                    for c_word in correct_answer_words:
-                        # Skip if the correct word is considered "noisy" and we haven't found a significant match yet
-                        # This ensures we prioritize non-noisy parts of the answer
-                        if c_word in noisy_correct_words and not found_significant_match:
-                            continue
-
-                        for u_word in processed_user_answer_words:
-                            similarity = calculate_char_similarity(c_word, u_word)
-                            if similarity >= 70.0:
-                                # If it's a non-noisy word, or if we've already found a non-noisy match,
-                                # then this match contributes to correctness.
-                                if c_word not in noisy_correct_words or found_significant_match:
-                                    found_significant_match = True
-                                    break # Found a good match for this correct word, move to next correct word
-                        if found_significant_match:
-                            is_correct = True # Set is_correct to True if a significant match is found
-                            break # Found a significant match overall, no need to check further
-
-                    # If no significant match was found but it's a single word from the correct answer
-                    # that isn't noisy, it can still be correct.
-                    if not is_correct and len(processed_user_answer_words) == 1:
-                        single_user_word = processed_user_answer_words[0]
-                        if single_user_word in correct_answer_words and single_user_word not in noisy_correct_words:
-                            is_correct = True
-
+                    # Use Levenshtein similarity for fuzzy matching
+                    # We'll compare the entire processed user answer against the correct answer
+                    similarity = calculate_word_similarity(processed_user_answer, correct_answer_lower)
+                    # A threshold of 80% is a good starting point for acceptable "fuzziness"
+                    if similarity >= 80.0:
+                        is_correct = True
 
                 # Compare the processed user answer with the correct answer
                 if is_correct:
                     game.score += game.current_wager # Use wager for score
                     await interaction.followup.send(
-                        f"✅ Correct, {game.player.display_name}! Your score is now **${game.score if game.score >= 0 else f'-{abs(game.score)}'}**." # Format negative score
+                        f"✅ Correct, {game.player.display_name}! Your score is now **{'' if game.score >= 0 else '-'}${abs(game.score)}**." # Format negative score
                     )
                 else:
                     game.score -= game.current_wager # Use wager for score
@@ -312,7 +302,7 @@ class CategoryValueSelect(discord.ui.Select):
                     full_correct_answer = f'"{determined_prefix} {question_data["answer"]}"'.strip()
                     await interaction.followup.send(
                         f"❌ Incorrect, {game.player.display_name}! The correct answer was: "
-                        f"**__{full_correct_answer}__**. Your score is now **${game.score if game.score >= 0 else f'-{abs(game.score)}'}**." # Format negative score
+                        f"**__{full_correct_answer}__**. Your score is now **{'' if game.score >= 0 else '-'}${abs(game.score)}**." # Format negative score
                     )
 
             except asyncio.TimeoutError:
@@ -353,10 +343,10 @@ class CategoryValueSelect(discord.ui.Select):
                 # Determine the content for the new board message based on the game phase
                 board_message_content = ""
                 if game.game_phase == "NORMAL_JEOPARDY":
-                    board_message_content = f"**{game.player.display_name}**'s Score: **${game.score if game.score >= 0 else f'-{abs(game.score)}'}**\n\n" \
+                    board_message_content = f"**{game.player.display_name}**'s Score: **{'' if game.score >= 0 else '-'}${abs(game.score)}**\n\n" \
                                             "Select a category and value from the dropdowns below!"
                 elif game.game_phase == "DOUBLE_JEOPARDY":
-                    board_message_content = f"**{game.player.display_name}**'s Score: **${game.score if game.score >= 0 else f'-{abs(game.score)}'}**\n\n" \
+                    board_message_content = f"**{game.player.display_name}**'s Score: **{'' if game.score >= 0 else '-'}${abs(game.score)}**\n\n" \
                                             "**Double Jeopardy!** Select a category and value from the dropdowns below!"
                 
                 if board_message_content: # Only send if there's content (i.e., not Final Jeopardy yet)
@@ -430,11 +420,18 @@ class JeopardyGameView(discord.ui.View):
     async def on_timeout(self):
         """Called when the view times out due to inactivity."""
         if self.game.board_message:
-            # Edit the message to remove the interactive components and indicate timeout
-            await self.game.board_message.edit(content="Jeopardy game timed out due to inactivity.", view=None)
-        if self.game.channel.id in active_jeopardy_games:
+            try:
+                # MODIFIED: Added try-except for NotFound error
+                await self.game.board_message.edit(content="Jeopardy game timed out due to inactivity.", view=None)
+            except discord.errors.NotFound:
+                print("WARNING: Board message not found during timeout, likely already deleted.")
+            except Exception as e:
+                print(f"WARNING: An error occurred editing board message on timeout: {e}")
+        
+        # MODIFIED: Changed self.game.channel.id to self.game.channel_id
+        if self.game.channel_id in active_jeopardy_games:
             # Clean up the game state
-            del active_jeopardy_games[self.game.channel.id]
+            del active_jeopardy_games[self.game.channel_id]
         print(f"Jeopardy game in channel {self.game.channel_id} timed out.")
 
 
@@ -564,7 +561,7 @@ class TicTacToeButton(discord.ui.Button):
         if view._check_winner():
             winner = view.players[view.current_player].display_name
             await interaction.edit_original_response(
-                content=f"🎉 **{winner} wins!** �",
+                content=f"🎉 **{winner} wins!** 🎉",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -778,10 +775,17 @@ class TicTacToeView(discord.ui.View):
     async def on_timeout(self):
         """Called when the view times out due to inactivity."""
         if self.message:
-            await self.message.edit(content="Game timed out due to inactivity.", view=None, embed=None)
-        if self.message and self.message.channel.id in active_tictactoe_games:
-            del active_tictactoe_games[self.message.channel.id]
-        print(f"Tic-Tac-Toe game in channel {self.message.channel_id} timed out.")
+            try:
+                await self.message.edit(content="Game timed out due to inactivity.", view=None, embed=None)
+            except discord.errors.NotFound:
+                print("WARNING: Board message not found during timeout, likely already deleted.")
+            except Exception as e:
+                print(f"WARNING: An error occurred editing board message on timeout: {e}")
+        
+        # MODIFIED: Changed self.game.channel.id to self.game.channel_id
+        if self.game.channel_id in active_tictactoe_games:
+            del active_tictactoe_games[self.game.channel_id]
+        print(f"Tic-Tac-Toe game in channel {self.game.channel_id} timed out.")
 
 
 # --- Bot Events ---
@@ -1211,7 +1215,7 @@ async def serene_game_command(interaction: discord.Interaction, game_type: str):
             
             # MODIFIED: Formatted score for negative values on initial board message
             game_message = await interaction.channel.send(
-                content=f"**{jeopardy_game.player.display_name}**'s Score: **${jeopardy_game.score if jeopardy_game.score >= 0 else f'-{abs(jeopardy_game.score)}'}**\n\n"
+                content=f"**{jeopardy_game.player.display_name}**'s Score: **{'' if jeopardy_game.score >= 0 else '-'}${abs(jeopardy_game.score)}**\n\n"
                         "Select a category and value from the dropdowns below!",
                 view=jeopardy_view
             )
