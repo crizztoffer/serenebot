@@ -1567,10 +1567,13 @@ class BlackjackGameView(discord.ui.View):
         super().__init__(timeout=300) # Game times out after 5 minutes of inactivity
         self.game = game # Reference to the BlackjackGame instance
         self.message = None # To store the message containing the game UI
+        self._initial_game_buttons() # Add Hit and Stay buttons initially
 
-        # Buttons are now added via decorators below, so remove explicit add_item calls here
-        # self.add_item(discord.ui.Button(label="Hit", style=discord.ButtonStyle.green, custom_id="blackjack_hit"))
-        # self.add_item(discord.ui.Button(label="Stay", style=discord.ButtonStyle.red, custom_id="blackjack_stay"))
+    def _initial_game_buttons(self):
+        """Adds Hit and Stay buttons to the view."""
+        self.clear_items()
+        self.add_item(discord.ui.Button(label="Hit", style=discord.ButtonStyle.green, custom_id="blackjack_hit", row=0))
+        self.add_item(discord.ui.Button(label="Stay", style=discord.ButtonStyle.red, custom_id="blackjack_stay", row=0))
 
     async def _update_game_message(self, embed: discord.Embed, view_to_use: discord.ui.View = None):
         """
@@ -1687,16 +1690,26 @@ class BlackjackGameView(discord.ui.View):
             await interaction.response.send_message("This is not your game!", ephemeral=True)
             return
         
-        await interaction.response.defer()
-        
+        await interaction.response.defer() # Defer the interaction
+
         # Clean up the old game (this view)
         if self.game.channel_id in active_blackjack_games:
             del active_blackjack_games[self.game.channel_id]
         self.stop() # Stop the current view's timeout
 
-        # Create and start a new game
+        # Edit the message with the "Play Again" button to indicate a new game is starting
+        if self.message:
+            try:
+                await self.message.edit(content="Starting a new Blackjack game...", view=None, embed=None)
+            except discord.errors.NotFound:
+                print("WARNING: Game message not found when trying to edit for new game start.")
+            except Exception as e:
+                print(f"WARNING: An error occurred editing game message for new game start: {e}")
+
+        # Create and start a new game, sending a *new* message to the channel
         new_blackjack_game = BlackjackGame(interaction.channel.id, interaction.user)
-        await new_blackjack_game.start_game(interaction) # This will send a new message and new view
+        # The start_game method will now send a new message to the channel
+        await new_blackjack_game.start_game(interaction) 
 
     @discord.ui.button(label="Quit", style=discord.ButtonStyle.red, custom_id="blackjack_quit", row=0)
     async def quit_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
