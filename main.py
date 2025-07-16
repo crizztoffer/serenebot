@@ -930,7 +930,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
+                    content=f"🎉 **{winner_player.display_name} wins!** �",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -1194,7 +1194,7 @@ def to_past_tense(verb):
         "go": "went", "come": "came", "see": "saw", "say": "said", "make": "made",
         "take": "took", "know": "knew", "get": "got", "give": "gave", "find": "found",
         "think": "thought", "tell": "told", "become": "became", "show": "showed",
-        "leave": "left", "feel": "felt", "put": "put", "put", "bring": "brought", "begin": "began",
+        "leave": "left", "feel": "felt", "put": "put", "bring": "brought", "begin": "began",
         "run": "ran", "eat": "ate", "sing": "sang", "drink": "drank", "swim": "swam",
         "break": "broke", "choose": "chose", "drive": "drove", "fall": "fell", "fly": "flew",
         "forget": "forgot", "hold": "held", "read": "read", "ride": "rode", "speak": "spoke",
