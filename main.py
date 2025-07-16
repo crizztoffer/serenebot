@@ -1586,13 +1586,13 @@ class BlackjackGame:
                 async with session.get(full_url) as response:
                     if response.status == 200:
                         card_data = await response.json()
-                        # Ensure 'cards' key exists and is a list
-                        if "cards" in card_data and isinstance(card_data["cards"], list):
-                            self.deck = card_data["cards"]
+                        # Expecting card_data to be a direct list of dictionaries
+                        if isinstance(card_data, list):
+                            self.deck = card_data
                             print(f"Card data fetched for Blackjack game in channel {self.channel_id}. Deck size: {len(self.deck)}")
                             return True
                         else:
-                            print("Error: 'cards' key not found or not a list in fetched data.")
+                            print("Error: Fetched data is not a list of cards as expected.")
                             return False
                     else:
                         print(f"Error fetching card data: HTTP Status {response.status}")
