@@ -930,7 +930,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
+                    content=f"🎉 **{winner_player.display_name} wins!** �",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -1076,7 +1076,7 @@ async def update_user_kekchipz(guild_id: int, discord_id: int, amount: int):
     except aiomysql.Error as e:
         print(f"Database update failed for user {discord_id}: MySQL Error: {e}")
     except Exception as e:
-        print(f"Database update failed for user {discord_id}: An unexpected error occurred: {e}")
+        print(f"Database update failed for user {discord_id}): An unexpected error occurred: {e}")
     finally:
         if conn:
             conn.close()
@@ -1621,7 +1621,7 @@ class BlackjackGameView(discord.ui.View):
 
         if player_value > 21:
             # Player busts
-            final_embed = self.game._create_game_embed(reveal_dealer=True, result_message="BUST! Dealer wins.")
+            final_embed = self.game._create_game_embed(reveal_dealer=True, result_message="BUST! Serene wins.")
             await self._update_game_message(interaction, final_embed, view_to_use=None) # Remove buttons
             await update_user_kekchipz(interaction.guild.id, interaction.user.id, -50) # Player loses kekchipz
             self._end_game_buttons() # Disable buttons in current view instance
@@ -1641,30 +1641,30 @@ class BlackjackGameView(discord.ui.View):
         
         await interaction.response.defer() # Acknowledge the interaction
 
-        # Dealer's turn
+        # Serene's turn
         player_value = self.game.calculate_hand_value(self.game.player_hand)
-        dealer_value = self.game.calculate_hand_value(self.game.dealer_hand)
+        serene_value = self.game.calculate_hand_value(self.game.dealer_hand) # Renamed dealer_value to serene_value
 
-        # Dealer hits until 17 or more
-        while dealer_value < 17:
+        # Serene hits until 17 or more
+        while serene_value < 17:
             self.game.dealer_hand.append(self.game.deal_card())
-            dealer_value = self.game.calculate_hand_value(self.game.dealer_hand)
-            # Update display with new dealer card, revealing it
+            serene_value = self.game.calculate_hand_value(self.game.dealer_hand)
+            # Update display with new Serene card, revealing it
             temp_embed = self.game._create_game_embed(reveal_dealer=True)
-            await self._update_game_message(interaction, temp_embed, view_to_use=self) # Keep buttons active during dealer's turn
+            await self._update_game_message(interaction, temp_embed, view_to_use=self) # Keep buttons active during Serene's turn
             await asyncio.sleep(1) # Small delay for dramatic effect
 
         result_message = ""
         kekchipz_change = 0
 
-        if dealer_value > 21:
-            result_message = "Dealer busts! You win!"
+        if serene_value > 21:
+            result_message = "Serene busts! You win!"
             kekchipz_change = 100 # Player wins kekchipz
-        elif player_value > dealer_value:
+        elif player_value > serene_value:
             result_message = "You win!"
             kekchipz_change = 100 # Player wins kekchipz
-        elif dealer_value > player_value:
-            result_message = "Dealer wins!"
+        elif serene_value > player_value:
+            result_message = "Serene wins!"
             kekchipz_change = -50 # Player loses kekchipz
         else:
             result_message = "It's a push (tie)!"
@@ -1682,14 +1682,14 @@ class BlackjackGameView(discord.ui.View):
 class BlackjackGame:
     """
     Represents a single Blackjack game instance.
-    Manages game state, player and dealer hands, and card deck.
+    Manages game state, player and Serene hands, and card deck.
     """
     def __init__(self, channel_id: int, player: discord.User):
         self.channel_id = channel_id
         self.player = player
         self.deck = self._create_standard_deck() # Initialize deck locally
         self.player_hand = []
-        self.dealer_hand = []
+        self.dealer_hand = [] # This will be Serene's hand
         self.game_message = None # To store the message containing the game UI
         self.game_data_url = "https://serenekeks.com/serene_bot_games.php"
         self.game_over = False # New flag to track if the game has ended
@@ -1765,50 +1765,49 @@ class BlackjackGame:
     def _create_game_embed(self, reveal_dealer: bool = False, result_message: str = None) -> discord.Embed:
         """
         Creates and returns a Discord Embed object representing the current game state.
-        :param reveal_dealer: If True, reveals the dealer's hidden card.
+        :param reveal_dealer: If True, reveals Serene's hidden card.
         :param result_message: An optional message to display as the game result.
         :return: A discord.Embed object.
         """
         player_value = self.calculate_hand_value(self.player_hand)
-        dealer_value = self.calculate_hand_value(self.dealer_hand)
+        serene_value = self.calculate_hand_value(self.dealer_hand) # Renamed dealer_value to serene_value
 
         # Construct the combo string for the player's hand images
         player_card_codes = [card['code'] for card in self.player_hand if 'code' in card]
         player_combo_url = f"{self.game_data_url}?combo={','.join(player_card_codes)}" if player_card_codes else ""
 
-        # Construct the combo string for the dealer's hand images
-        dealer_display_cards = []
-        if reveal_dealer:
-            dealer_display_cards = [card['code'] for card in self.dealer_hand if 'code' in card]
+        # Construct the combo string for Serene's hand images
+        serene_display_cards = []
+        if reveal_dealer: # If revealing, show all cards
+            serene_display_cards = [card['code'] for card in self.dealer_hand if 'code' in card]
         else:
-            # Only show the first card and a 'back' card
+            # Only show the first card (the PHP backend will automatically add a 'back' for the hidden card)
             if self.dealer_hand and 'code' in self.dealer_hand[0]:
-                dealer_display_cards.append(self.dealer_hand[0]['code'])
-            dealer_display_cards.append('back') # Placeholder for the hidden card
+                serene_display_cards.append(self.dealer_hand[0]['code'])
 
-        dealer_combo_url = f"{self.game_data_url}?combo={','.join(dealer_display_cards)}" if dealer_display_cards else ""
+        serene_combo_url = f"{self.game_data_url}?combo={','.join(serene_display_cards)}" if serene_display_cards else ""
 
         # Create an embed for the game display
         embed = discord.Embed(
             title="Blackjack Game",
-            description=f"**{self.player.display_name} vs. Dealer**",
+            description=f"**{self.player.display_name} vs. Serene**", # Changed "Dealer" to "Serene"
             color=discord.Color.dark_green()
         )
 
-        # Add player's hand details (titles and value)
+        # Add player's hand details (only value, not individual cards in text)
         embed.add_field(
-            name=f"{self.player.display_name}'s Hand (Value: {player_value})",
-            value=f"{', '.join([card['title'] for card in self.player_hand])}",
+            name=f"{self.player.display_name}'s Hand", # Removed "(Value: {player_value})" from name
+            value=f"Value: {player_value}", # Moved value to the value field
             inline=False
         )
 
-        # Add dealer's hand details
-        dealer_hand_value_str = f"{dealer_value}" if reveal_dealer else f"{self.calculate_hand_value([self.dealer_hand[0]])} + ?"
-        dealer_hand_titles = ', '.join([card['title'] for card in self.dealer_hand]) if reveal_dealer else f"{self.dealer_hand[0]['title']}, [Hidden Card]"
+        # Add Serene's hand details
+        serene_hand_value_str = f"{serene_value}" if reveal_dealer else f"{self.calculate_hand_value([self.dealer_hand[0]])} + ?"
+        serene_hand_titles = ', '.join([card['title'] for card in self.dealer_hand]) if reveal_dealer else f"{self.dealer_hand[0]['title']}, [Hidden Card]"
         
         embed.add_field(
-            name=f"Dealer's Hand (Value: {dealer_hand_value_str})",
-            value=dealer_hand_titles,
+            name=f"Serene's Hand (Value: {serene_hand_value_str})", # Changed "Dealer" to "Serene"
+            value=serene_hand_titles,
             inline=False
         )
 
@@ -1816,9 +1815,9 @@ class BlackjackGame:
         if player_combo_url:
             embed.set_image(url=player_combo_url)
         
-        # Set the thumbnail of the embed to the combined dealer hand image
-        if dealer_combo_url:
-            embed.set_thumbnail(url=dealer_combo_url)
+        # Set the thumbnail of the embed to the combined Serene hand image
+        if serene_combo_url:
+            embed.set_thumbnail(url=serene_combo_url)
         
         if result_message:
             embed.set_footer(text=result_message)
@@ -1838,7 +1837,7 @@ class BlackjackGame:
 
         # Deal initial hands
         self.player_hand = [self.deal_card(), self.deal_card()]
-        self.dealer_hand = [self.deal_card(), self.deal_card()]
+        self.dealer_hand = [self.deal_card(), self.deal_card()] # This is Serene's hand
         
         # Create the view for the game
         game_view = BlackjackGameView(game=self)
