@@ -930,7 +930,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
+                    content=f"🎉 **{winner_player.display_name} wins!** �",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -1567,27 +1567,31 @@ class BlackjackGameView(discord.ui.View):
         super().__init__(timeout=300) # Game times out after 5 minutes of inactivity
         self.game = game # Reference to the BlackjackGame instance
         self.message = None # To store the message containing the game UI
-        self._initial_game_buttons() # Add Hit and Stay buttons initially
 
-    def _initial_game_buttons(self):
-        """Adds Hit and Stay buttons to the view."""
-        self.clear_items()
-        self.add_item(discord.ui.Button(label="Hit", style=discord.ButtonStyle.green, custom_id="blackjack_hit", row=0))
-        self.add_item(discord.ui.Button(label="Stay", style=discord.ButtonStyle.red, custom_id="blackjack_stay", row=0))
+        # Buttons are now added via decorators below, so remove explicit add_item calls here
+        # self.add_item(discord.ui.Button(label="Hit", style=discord.ButtonStyle.green, custom_id="blackjack_hit"))
+        # self.add_item(discord.ui.Button(label="Stay", style=discord.ButtonStyle.red, custom_id="blackjack_stay"))
 
     async def _update_game_message(self, interaction: discord.Interaction, embed: discord.Embed, view_to_use: discord.ui.View = None):
-        """
-        Helper to update the main game message.
-        This method uses interaction.edit_original_response() for deferred interactions.
-        """
-        try:
-            await interaction.edit_original_response(embed=embed, view=view_to_use)
-        except discord.errors.NotFound:
-            print("WARNING: Original interaction response not found during edit, likely already deleted or inaccessible.")
-        except Exception as e:
-            print(f"WARNING: An unexpected error occurred editing original interaction response: {e}")
+        """Helper to update the main game message, deleting the old one and sending a new one."""
+        if self.message:
+            try:
+                await self.message.delete() # Delete the old message
+            except discord.errors.NotFound:
+                print("WARNING: Old game message not found during deletion, likely already deleted.")
+            except Exception as e:
+                print(f"WARNING: An error occurred deleting old game message: {e}")
+        
+        # Send a new message
+        new_message = await interaction.channel.send(embed=embed, view=view_to_use)
+        self.message = new_message # Update the view's message reference
+        self.game.game_message = new_message # Update the game's message reference
 
-    # Removed _end_game_buttons, Play Again, and Quit callbacks
+    def _end_game_buttons(self):
+        """Disables all buttons in the view."""
+        for item in self.children:
+            item.disabled = True
+        return self # Return self to update the view with disabled buttons
 
     async def on_timeout(self):
         """Called when the view times out due to inactivity."""
@@ -1610,26 +1614,23 @@ class BlackjackGameView(discord.ui.View):
             await interaction.response.send_message("This is not your Blackjack game!", ephemeral=True)
             return
         
-        # Defer the interaction immediately to prevent "interaction failed"
-        await interaction.response.defer()
+        await interaction.response.defer() # Acknowledge the interaction
 
         self.game.player_hand.append(self.game.deal_card())
         player_value = self.game.calculate_hand_value(self.game.player_hand)
 
         if player_value > 21:
-            # Player busts - disable buttons
-            for item in self.children:
-                item.disabled = True
+            # Player busts
             final_embed = self.game._create_game_embed(reveal_dealer=True, result_message="BUST! Serene wins.")
-            await self._update_game_message(interaction, final_embed, view_to_use=self)
-            await update_user_kekchipz(interaction.guild.id, interaction.user.id, -50) # Player loses kekchipz on bust
-            if self.game.channel_id in active_blackjack_games:
-                del active_blackjack_games[self.game.channel_id]
+            await self._update_game_message(interaction, final_embed, view_to_use=None) # Remove buttons
+            await update_user_kekchipz(interaction.guild.id, interaction.user.id, -50) # Player loses kekchipz
+            self._end_game_buttons() # Disable buttons in current view instance
+            del active_blackjack_games[self.game.channel_id]
             self.stop() # Stop the view
         else:
             # Player can hit again - send new message with updated embed
             new_embed = self.game._create_game_embed()
-            await self._update_game_message(interaction, new_embed, view_to_use=self)
+            await self._update_game_message(interaction, new_embed, view_to_use=self) # Keep buttons active
 
     @discord.ui.button(label="Stay", style=discord.ButtonStyle.red, custom_id="blackjack_stay")
     async def stay_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1638,8 +1639,7 @@ class BlackjackGameView(discord.ui.View):
             await interaction.response.send_message("This is not your Blackjack game!", ephemeral=True)
             return
         
-        # Defer the interaction immediately to prevent "interaction failed"
-        await interaction.response.defer()
+        await interaction.response.defer() # Acknowledge the interaction
 
         # Serene's turn
         player_value = self.game.calculate_hand_value(self.game.player_hand)
@@ -1649,6 +1649,9 @@ class BlackjackGameView(discord.ui.View):
         while serene_value < 17:
             self.game.dealer_hand.append(self.game.deal_card())
             serene_value = self.game.calculate_hand_value(self.game.dealer_hand)
+            # Update display with new Serene card, revealing it
+            temp_embed = self.game._create_game_embed(reveal_dealer=True)
+            await self._update_game_message(interaction, temp_embed, view_to_use=self) # Keep buttons active during Serene's turn
             await asyncio.sleep(1) # Small delay for dramatic effect
 
         result_message = ""
@@ -1667,17 +1670,12 @@ class BlackjackGameView(discord.ui.View):
             result_message = "It's a push (tie)!"
             kekchipz_change = 0 # No change for a push
 
-        # Apply kekchipz change
-        await update_user_kekchipz(interaction.guild.id, interaction.user.id, kekchipz_change)
-
-        # Disable all buttons and update the message with the final result
-        for item in self.children:
-            item.disabled = True
         final_embed = self.game._create_game_embed(reveal_dealer=True, result_message=result_message)
-        await self._update_game_message(interaction, final_embed, view_to_use=self)
+        await self._update_game_message(interaction, final_embed, view_to_use=None) # Remove buttons
+        await update_user_kekchipz(interaction.guild.id, interaction.user.id, kekchipz_change)
         
-        if self.game.channel_id in active_blackjack_games:
-            del active_blackjack_games[self.game.channel_id]
+        self._end_game_buttons() # Disable buttons in current view instance
+        del active_blackjack_games[self.game.channel_id] # Remove game from active games
         self.stop() # Stop the view
 
 
@@ -1694,7 +1692,7 @@ class BlackjackGame:
         self.dealer_hand = [] # This will be Serene's hand
         self.game_message = None # To store the message containing the game UI
         self.game_data_url = "https://serenekeks.com/serene_bot_games.php"
-        # Removed self.game_over as it's no longer needed for this simplified flow
+        self.game_over = False # New flag to track if the game has ended
 
     def _create_standard_deck(self) -> list[dict]:
         """
@@ -1848,8 +1846,7 @@ class BlackjackGame:
         initial_embed = self._create_game_embed()
 
         # Send the message and store its reference in both game and view
-        # For the initial message, we use interaction.followup.send as the interaction was deferred
-        self.game_message = await interaction.followup.send(embed=initial_embed, view=game_view)
+        self.game_message = await interaction.channel.send(embed=initial_embed, view=game_view)
         game_view.message = self.game_message # Store message in the view for updates
         
         active_blackjack_games[self.channel_id] = game_view # Store the view instance, not the game itself
