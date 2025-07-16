@@ -930,7 +930,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
+                    content=f"🎉 **{winner_player.display_name} wins!** �",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -1557,7 +1557,121 @@ async def story_command(interaction: discord.Interaction):
     await interaction.followup.send(display_message)
 
 
-# --- New Blackjack Game Class ---
+# --- New Blackjack Game UI Components ---
+
+class BlackjackGameView(discord.ui.View):
+    """
+    The Discord UI View that holds the interactive Blackjack game buttons.
+    """
+    def __init__(self, game: 'BlackjackGame'):
+        super().__init__(timeout=300) # Game times out after 5 minutes of inactivity
+        self.game = game # Reference to the BlackjackGame instance
+        self.message = None # To store the message containing the game UI
+
+        self.add_item(discord.ui.Button(label="Hit", style=discord.ButtonStyle.green, custom_id="blackjack_hit"))
+        self.add_item(discord.ui.Button(label="Stay", style=discord.ButtonStyle.red, custom_id="blackjack_stay"))
+
+    async def _update_game_message(self, interaction: discord.Interaction, content: str = None, embed: discord.Embed = None):
+        """Helper to update the main game message."""
+        if self.message:
+            try:
+                await self.message.edit(content=content, embed=embed, view=self)
+            except discord.errors.NotFound:
+                print("WARNING: Game message not found during update, likely already deleted.")
+                self.message = None
+            except Exception as e:
+                print(f"WARNING: An error occurred editing game message: {e}")
+        else:
+            # If message was somehow lost, try to send a new one (though this shouldn't happen often)
+            self.message = await interaction.channel.send(content=content, embed=embed, view=self)
+
+    def _end_game_buttons(self):
+        """Disables all buttons in the view."""
+        for item in self.children:
+            item.disabled = True
+        return self # Return self to update the view with disabled buttons
+
+    async def on_timeout(self):
+        """Called when the view times out due to inactivity."""
+        if self.message:
+            try:
+                await self.message.edit(content="Blackjack game timed out due to inactivity.", view=None, embed=None)
+            except discord.errors.NotFound:
+                print("WARNING: Game message not found during timeout, likely already deleted.")
+            except Exception as e:
+                print(f"WARNING: An error occurred editing game message on timeout: {e}")
+        
+        if self.game.channel_id in active_blackjack_games:
+            del active_blackjack_games[self.game.channel_id]
+        print(f"Blackjack game in channel {self.game.channel_id} timed out.")
+
+    @discord.ui.button(label="Hit", style=discord.ButtonStyle.green, custom_id="blackjack_hit")
+    async def hit_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handles the 'Hit' button click."""
+        if interaction.user.id != self.game.player.id:
+            await interaction.response.send_message("This is not your Blackjack game!", ephemeral=True)
+            return
+        
+        await interaction.response.defer() # Acknowledge the interaction
+
+        self.game.player_hand.append(self.game.deal_card())
+        player_value = self.game.calculate_hand_value(self.game.player_hand)
+
+        if player_value > 21:
+            # Player busts
+            await self.game.update_game_display(interaction, reveal_dealer=True, result_message="BUST! Dealer wins.")
+            await update_user_kekchipz(interaction.guild.id, interaction.user.id, -50) # Player loses kekchipz
+            self._end_game_buttons()
+            del active_blackjack_games[self.game.channel_id]
+            self.stop() # Stop the view
+        else:
+            # Player can hit again
+            await self.game.update_game_display(interaction) # Update game display, keep buttons active
+
+    @discord.ui.button(label="Stay", style=discord.ButtonStyle.red, custom_id="blackjack_stay")
+    async def stay_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handles the 'Stay' button click."""
+        if interaction.user.id != self.game.player.id:
+            await interaction.response.send_message("This is not your Blackjack game!", ephemeral=True)
+            return
+        
+        await interaction.response.defer() # Acknowledge the interaction
+
+        # Dealer's turn
+        player_value = self.game.calculate_hand_value(self.game.player_hand)
+        dealer_value = self.game.calculate_hand_value(self.game.dealer_hand)
+
+        # Dealer hits until 17 or more
+        while dealer_value < 17:
+            self.game.dealer_hand.append(self.game.deal_card())
+            dealer_value = self.game.calculate_hand_value(self.game.dealer_hand)
+            await self.game.update_game_display(interaction, reveal_dealer=True) # Update to show new dealer card
+            await asyncio.sleep(1) # Small delay for dramatic effect
+
+        result_message = ""
+        kekchipz_change = 0
+
+        if dealer_value > 21:
+            result_message = "Dealer busts! You win!"
+            kekchipz_change = 100 # Player wins kekchipz
+        elif player_value > dealer_value:
+            result_message = "You win!"
+            kekchipz_change = 100 # Player wins kekchipz
+        elif dealer_value > player_value:
+            result_message = "Dealer wins!"
+            kekchipz_change = -50 # Player loses kekchipz
+        else:
+            result_message = "It's a push (tie)!"
+            kekchipz_change = 0 # No change for a push
+
+        await self.game.update_game_display(interaction, reveal_dealer=True, result_message=result_message)
+        await update_user_kekchipz(interaction.guild.id, interaction.user.id, kekchipz_change)
+        
+        self._end_game_buttons() # Disable buttons
+        del active_blackjack_games[self.game.channel_id] # Remove game from active games
+        self.stop() # Stop the view
+
+
 class BlackjackGame:
     """
     Represents a single Blackjack game instance.
@@ -1571,6 +1685,7 @@ class BlackjackGame:
         self.dealer_hand = []
         self.game_message = None # To store the message containing the game UI
         self.game_data_url = "https://serenekeks.com/serene_bot_games.php"
+        self.game_over = False # New flag to track if the game has ended
 
     def _create_standard_deck(self) -> list[dict]:
         """
@@ -1601,36 +1716,6 @@ class BlackjackGame:
                     "code": card_code
                 })
         return deck
-
-    # Removed fetch_card_data as it's no longer needed
-    # async def fetch_card_data(self) -> bool:
-    #     """
-    #     Fetches card data from the backend.
-    #     Returns True if data is successfully fetched, False otherwise.
-    #     """
-    #     try:
-    #         params = {"cards": "true"}
-    #         encoded_params = urllib.parse.urlencode(params)
-    #         full_url = f"{self.game_data_url}?{encoded_params}"
-
-    #         async with aiohttp.ClientSession() as session:
-    #             async with session.get(full_url) as response:
-    #                 if response.status == 200:
-    #                     card_data = await response.json()
-    #                     # Expecting card_data to be a direct list of dictionaries
-    #                     if isinstance(card_data, list):
-    #                         self.deck = card_data
-    #                         print(f"Card data fetched for Blackjack game in channel {self.channel_id}. Deck size: {len(self.deck)}")
-    #                         return True
-    #                     else:
-    #                         print("Error: Fetched data is not a list of cards as expected.")
-    #                         return False
-    #                 else:
-    #                     print(f"Error fetching card data: HTTP Status {response.status}")
-    #                     return False
-    #     except Exception as e:
-    #         print(f"Error loading card data: {e}")
-    #         return False
 
     def deal_card(self) -> dict:
         """
@@ -1670,6 +1755,83 @@ class BlackjackGame:
             num_aces -= 1
         return value
 
+    async def update_game_display(self, interaction: discord.Interaction, reveal_dealer: bool = False, result_message: str = None):
+        """
+        Updates the Blackjack game embed.
+        :param interaction: The Discord interaction object.
+        :param reveal_dealer: If True, reveals the dealer's hidden card.
+        :param result_message: An optional message to display as the game result.
+        """
+        player_value = self.calculate_hand_value(self.player_hand)
+        dealer_value = self.calculate_hand_value(self.dealer_hand)
+
+        # Construct the combo string for the player's hand images
+        player_card_codes = [card['code'] for card in self.player_hand if 'code' in card]
+        player_combo_url = f"{self.game_data_url}?combo={','.join(player_card_codes)}" if player_card_codes else ""
+
+        # Construct the combo string for the dealer's hand images
+        dealer_display_cards = []
+        if reveal_dealer:
+            dealer_display_cards = [card['code'] for card in self.dealer_hand if 'code' in card]
+        else:
+            # Only show the first card and a 'back' card
+            if self.dealer_hand and 'code' in self.dealer_hand[0]:
+                dealer_display_cards.append(self.dealer_hand[0]['code'])
+            dealer_display_cards.append('back') # Placeholder for the hidden card
+
+        dealer_combo_url = f"{self.game_data_url}?combo={','.join(dealer_display_cards)}" if dealer_display_cards else ""
+
+        # Create an embed for the game display
+        embed = discord.Embed(
+            title="Blackjack Game",
+            description=f"**{self.player.display_name} vs. Dealer**",
+            color=discord.Color.dark_green()
+        )
+
+        # Add player's hand details (titles and value)
+        embed.add_field(
+            name=f"{self.player.display_name}'s Hand (Value: {player_value})",
+            value=f"{', '.join([card['title'] for card in self.player_hand])}",
+            inline=False
+        )
+
+        # Add dealer's hand details
+        dealer_hand_value_str = f"{dealer_value}" if reveal_dealer else f"{self.calculate_hand_value([self.dealer_hand[0]])} + ?"
+        dealer_hand_titles = ', '.join([card['title'] for card in self.dealer_hand]) if reveal_dealer else f"{self.dealer_hand[0]['title']}, [Hidden Card]"
+        
+        embed.add_field(
+            name=f"Dealer's Hand (Value: {dealer_hand_value_str})",
+            value=dealer_hand_titles,
+            inline=False
+        )
+
+        # Set the main image of the embed to the combined player hand image
+        if player_combo_url:
+            embed.set_image(url=player_combo_url)
+        
+        # Set the thumbnail of the embed to the combined dealer hand image
+        if dealer_combo_url:
+            embed.set_thumbnail(url=dealer_combo_url)
+        
+        if result_message:
+            embed.set_footer(text=result_message)
+        else:
+            embed.set_footer(text="What would you like to do? (Hit or Stand)")
+
+        # Update the message through the view
+        if self.game_message:
+            # If the view is attached, use its message reference
+            view_instance = active_blackjack_games.get(self.channel_id)
+            if view_instance and view_instance.message:
+                await view_instance.message.edit(embed=embed)
+            else:
+                # Fallback if view.message is not set, but self.game_message is
+                await self.game_message.edit(embed=embed)
+        else:
+            # This case should ideally not be hit if start_game sets game_message correctly
+            print("WARNING: game_message not set in BlackjackGame. Cannot update embed.")
+
+
     async def start_game(self, interaction: discord.Interaction):
         """
         Starts the Blackjack game: shuffles, deals initial hands,
@@ -1682,51 +1844,45 @@ class BlackjackGame:
         self.player_hand = [self.deal_card(), self.deal_card()]
         self.dealer_hand = [self.deal_card(), self.deal_card()]
         
+        # Create the view for the game
+        game_view = BlackjackGameView(game=self)
+        
+        # Initial display
         player_value = self.calculate_hand_value(self.player_hand)
         dealer_visible_value = self.calculate_hand_value([self.dealer_hand[0]])
 
-        # Construct the combo string for the player's hand images
         player_card_codes = [card['code'] for card in self.player_hand if 'code' in card]
         player_combo_url = f"{self.game_data_url}?combo={','.join(player_card_codes)}" if player_card_codes else ""
 
-        # Construct the combo string for the dealer's visible card + a hidden card image
         dealer_card_codes = [self.dealer_hand[0]['code'], 'back'] if 'code' in self.dealer_hand[0] else ['back']
         dealer_combo_url = f"{self.game_data_url}?combo={','.join(dealer_card_codes)}" if dealer_card_codes else ""
 
-        # Create an embed for the game display
         embed = discord.Embed(
             title="Blackjack Game Started!",
             description=f"**{self.player.display_name} vs. Dealer**",
             color=discord.Color.dark_green()
         )
-
-        # Add player's hand details (titles and value)
         embed.add_field(
             name=f"{self.player.display_name}'s Hand (Value: {player_value})",
             value=f"{', '.join([card['title'] for card in self.player_hand])}",
             inline=False
         )
-
-        # Add dealer's hand details (visible card title and value + hidden card)
         embed.add_field(
             name=f"Dealer's Hand (Value: {dealer_visible_value} + ?)",
             value=f"{self.dealer_hand[0]['title']}, [Hidden Card]",
             inline=False
         )
-
-        # Set the main image of the embed to the combined player hand image
         if player_combo_url:
             embed.set_image(url=player_combo_url)
-        
-        # Set the thumbnail of the embed to the combined dealer hand image (visible + back)
         if dealer_combo_url:
             embed.set_thumbnail(url=dealer_combo_url)
-        
         embed.set_footer(text="What would you like to do? (Hit or Stand)")
 
-        # Send the embed
-        self.game_message = await interaction.channel.send(embed=embed)
-        active_blackjack_games[self.channel_id] = self # Store the game instance
+        # Send the message and store its reference in both game and view
+        self.game_message = await interaction.channel.send(embed=embed, view=game_view)
+        game_view.message = self.game_message # Store message in the view for updates
+        
+        active_blackjack_games[self.channel_id] = game_view # Store the view instance, not the game itself
 
 
 @serene_group.command(name="game", description="Start a fun game with Serene!")
