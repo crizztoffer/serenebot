@@ -341,7 +341,7 @@ class CategoryValueSelect(discord.ui.Select):
                     full_correct_answer = f'"{determined_prefix} {question_data["answer"]}"'.strip()
                     await interaction.followup.send(
                         f"❌ Incorrect, {game.player.display_name}! The correct answer was: "
-                        f"**__{full_correct_answer}__**. You lost **${game.current_wager}**."
+                        f"**__{full_correct_answer}__**. Your score is now **{'-' if game.score < 0 else ''}${abs(game.score)}**." # Format negative score
                     )
 
             except asyncio.TimeoutError:
@@ -729,7 +729,7 @@ class TicTacToeButton(discord.ui.Button):
                 await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
             await interaction.edit_original_response(
-                content=f"🎉 **{winner_player.display_name} wins!** �",
+                content=f"🎉 **{winner_player.display_name} wins!** 🎉",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -869,7 +869,7 @@ class TicTacToeView(discord.ui.View):
             for r, c in self._get_empty_cells(board):
                 board[r][c] = "O"
                 evaluation = self._minimax(board, False) # Recurse for human's turn
-                board[r][c] = " " # Undo move (backtrack)
+                board[r][c] = " " # Undo move (backtrack) # Corrected: removed trailing comma
                 best_eval = max(best_eval, evaluation)
             return best_eval
         else: # Human's turn ('X')
@@ -877,7 +877,7 @@ class TicTacToeView(discord.ui.View):
             for r, c in self._get_empty_cells(board):
                 board[r][c] = "X"
                 evaluation = self._minimax(board, True) # Recurse for bot's turn
-                board[r][c] = " " # Undo move (backtrack)
+                board[r][c] = " " # Undo move (backtrack) # Corrected: removed trailing comma
                 best_eval = min(best_eval, evaluation)
             return best_eval
 
@@ -890,7 +890,7 @@ class TicTacToeView(discord.ui.View):
         for r, c in self._get_empty_cells(self.board):
             self.board[r][c] = "O" # Make hypothetical move for bot
             score = self._minimax(self.board, False) # Evaluate human's response to this move
-            self.board[r][c] = " ", # Undo hypothetical move
+            self.board[r][c] = " " # Undo hypothetical move # Corrected: removed trailing comma
 
             if score > best_score:
                 best_score = score
@@ -928,7 +928,7 @@ class TicTacToeView(discord.ui.View):
             elif self._check_draw():
                 await update_user_kekchipz(interaction.guild.id, interaction.user.id, 25) # Human player gets kekchipz for a draw
                 await interaction.edit_original_response(
-                    content="It's a **draw!** 🤝",
+                    content="It's a **draw!** �",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
