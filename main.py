@@ -747,7 +747,7 @@ class TicTacToeButton(discord.ui.Button):
         elif view._check_draw():
             await update_user_kekchipz(interaction.guild.id, interaction.user.id, 25) # Human player gets kekchipz for a draw
             await interaction.edit_original_response(
-                content="It's a **draw!** �",
+                content="It's a **draw!** 🤝",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -1572,31 +1572,22 @@ class BlackjackGameView(discord.ui.View):
         # self.add_item(discord.ui.Button(label="Hit", style=discord.ButtonStyle.green, custom_id="blackjack_hit"))
         # self.add_item(discord.ui.Button(label="Stay", style=discord.ButtonStyle.red, custom_id="blackjack_stay"))
 
-    async def _update_game_message(self, interaction: discord.Interaction, embed: discord.Embed, view_to_use: discord.ui.View = None):
+    async def _update_game_message(self, embed: discord.Embed, view_to_use: discord.ui.View = None):
         """
         Helper to update the main game message.
-        Uses edit_original_response if the interaction has already been deferred,
-        otherwise sends a new message.
+        This method assumes self.message (the discord.Message object) is already set.
+        It will edit the existing message.
         """
         if self.message:
-            # If a message already exists, edit it
             try:
-                await interaction.edit_original_response(embed=embed, view=view_to_use)
+                await self.message.edit(embed=embed, view=view_to_use)
             except discord.errors.NotFound:
-                print("WARNING: Original interaction response not found, likely already edited or deleted. Sending new message.")
-                new_message = await interaction.channel.send(embed=embed, view=view_to_use)
-                self.message = new_message
-                self.game.game_message = new_message
+                print("WARNING: Game message not found during edit, likely already deleted or inaccessible.")
             except Exception as e:
-                print(f"WARNING: An error occurred editing original response: {e}. Sending new message.")
-                new_message = await interaction.channel.send(embed=embed, view=view_to_use)
-                self.message = new_message
-                self.game.game_message = new_message
+                print(f"WARNING: An unexpected error occurred editing game message: {e}")
         else:
-            # If no message exists (first send), send a new one
-            new_message = await interaction.channel.send(embed=embed, view=view_to_use)
-            self.message = new_message
-            self.game.game_message = new_message
+            print("ERROR: _update_game_message called but self.message is None. Cannot edit message.")
+            # This case should ideally not happen if start_game correctly sets self.message initially.
 
 
     def _end_game_buttons(self):
@@ -1639,12 +1630,12 @@ class BlackjackGameView(discord.ui.View):
             # Player busts
             self._end_game_buttons() # Modify the current view to show Play Again/Quit
             final_embed = self.game._create_game_embed(reveal_dealer=True, result_message="BUST! Serene wins.")
-            await self._update_game_message(interaction, final_embed, view_to_use=self) # Pass the modified view
+            await self._update_game_message(final_embed, view_to_use=self) # Pass the modified view
             # No del active_blackjack_games or self.stop() here.
         else:
             # Player can hit again - send new message with updated embed
             new_embed = self.game._create_game_embed()
-            await self._update_game_message(interaction, new_embed, view_to_use=self) # Keep buttons active
+            await self._update_game_message(new_embed, view_to_use=self) # Keep buttons active
 
     @discord.ui.button(label="Stay", style=discord.ButtonStyle.red, custom_id="blackjack_stay")
     async def stay_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1666,7 +1657,7 @@ class BlackjackGameView(discord.ui.View):
             serene_value = self.game.calculate_hand_value(self.game.dealer_hand)
             # Update display with new Serene card, revealing it
             temp_embed = self.game._create_game_embed(reveal_dealer=True)
-            await self._update_game_message(interaction, temp_embed, view_to_use=self) # Keep buttons active during Serene's turn
+            await self._update_game_message(temp_embed, view_to_use=self) # Keep buttons active during Serene's turn
             await asyncio.sleep(1) # Small delay for dramatic effect
 
         result_message = ""
@@ -1687,7 +1678,7 @@ class BlackjackGameView(discord.ui.View):
 
         final_embed = self.game._create_game_embed(reveal_dealer=True, result_message=result_message)
         self._end_game_buttons() # Modify the current view to show Play Again/Quit
-        await self._update_game_message(interaction, final_embed, view_to_use=self) # Pass the modified view
+        await self._update_game_message(final_embed, view_to_use=self) # Pass the modified view
         # No del active_blackjack_games or self.stop() here.
 
     @discord.ui.button(label="Play Again", style=discord.ButtonStyle.green, custom_id="blackjack_play_again", row=0)
@@ -1722,7 +1713,8 @@ class BlackjackGameView(discord.ui.View):
         # Edit the message to remove the view (buttons) and embed
         if self.message:
             try:
-                await interaction.edit_original_response(content="Thanks for playing Blackjack!", view=None, embed=None)
+                # Use self.message.edit to edit the message this view is attached to
+                await self.message.edit(content="Thanks for playing Blackjack!", view=None, embed=None)
             except discord.errors.NotFound:
                 print("WARNING: Game message not found during quit, likely already deleted.")
             except Exception as e:
