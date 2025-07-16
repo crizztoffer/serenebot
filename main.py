@@ -721,7 +721,7 @@ class TicTacToeButton(discord.ui.Button):
         if view._check_winner():
             winner = view.players[view.current_player].display_name
             await interaction.edit_original_response(
-                content=f"🎉 **{winner} wins!** �",
+                content=f"🎉 **{winner} wins!** 🎉",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -972,6 +972,7 @@ async def add_user_to_db_if_not_exists(guild_id: int, user_name: str, discord_id
             user=db_user,
             password=db_password,
             db=db_name,
+            charset='utf8mb4', # Crucial for handling all Unicode characters
             autocommit=True # Set autocommit to True for simple connection check and inserts
         )
         async with conn.cursor() as cursor:
@@ -1084,6 +1085,7 @@ async def hourly_db_check():
             user=db_user,
             password=db_password,
             db=db_name,
+            charset='utf8mb4', # Crucial for handling all Unicode characters
             autocommit=True # Set autocommit to True for simple connection check
         )
         print(f"Successfully connected to MySQL database '{db_name}' on host '{db_host}' as user '{db_user}'.")
@@ -1320,7 +1322,7 @@ def to_past_tense(verb):
         "break": "broke", "choose": "chose", "drive": "drove", "fall": "fell", "fly": "flew",
         "forget": "forgot", "hold": "held", "read": "read", "ride": "rode", "speak": "spoke",
         "stand": "stood", "steal": "stole", "strike": "struck", "write": "wrote",
-        "burst": "burst", "hit": "hit", "cut": "cut", "cost": "cost", "let": "let",
+        "burst": "burst", "burst", "hit": "hit", "cut": "cut", "cost": "cost", "let": "let",
         "shut": "shut", "spread": "spread",
         # Explicitly added from PHP's $forth array to ensure correct past tense handling
         "shit": "shit", # "shit out a turd"
