@@ -134,6 +134,8 @@ class CategoryValueSelect(discord.ui.Select):
             question_data["guessed"] = True
             game.current_question = question_data # Set current question in game state
 
+            print(f"DEBUG: Selected question_data: {question_data}") # ADDED DEBUG PRINT
+
             # Clear the view's internal selection state (not strictly necessary but good practice)
             view._selected_category = None
             view._selected_value = None
@@ -924,7 +926,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** �",
+                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
