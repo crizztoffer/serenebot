@@ -341,7 +341,7 @@ class CategoryValueSelect(discord.ui.Select):
                     full_correct_answer = f'"{determined_prefix} {question_data["answer"]}"'.strip()
                     await interaction.followup.send(
                         f"❌ Incorrect, {game.player.display_name}! The correct answer was: "
-                        f"**__{full_correct_answer}__**. Your score is now **{'-' if game.score < 0 else ''}${abs(game.score)}**." # Format negative score
+                        f"**__{full_correct_answer}__**. You lost **${game.current_wager}**."
                     )
 
             except asyncio.TimeoutError:
@@ -719,14 +719,23 @@ class TicTacToeButton(discord.ui.Button):
 
         # Check for win or draw after human's move
         if view._check_winner():
-            winner = view.players[view.current_player].display_name
+            winner_player = view.players[view.current_player]
+            loser_player = view.players["O" if view.current_player == "X" else "X"] # The other player is the loser
+
+            # Only update human player's kekchipz
+            if winner_player.id == interaction.user.id: # Human wins
+                await update_user_kekchipz(interaction.guild.id, interaction.user.id, 100)
+            elif loser_player.id == interaction.user.id: # Human loses (bot wins)
+                await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
+
             await interaction.edit_original_response(
-                content=f"🎉 **{winner} wins!** 🎉",
+                content=f"🎉 **{winner_player.display_name} wins!** �",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
             del active_tictactoe_games[interaction.channel.id] # End the game
         elif view._check_draw():
+            await update_user_kekchipz(interaction.guild.id, interaction.user.id, 25) # Human player gets kekchipz for a draw
             await interaction.edit_original_response(
                 content="It's a **draw!** 🤝",
                 embed=view._start_game_message(),
@@ -881,7 +890,7 @@ class TicTacToeView(discord.ui.View):
         for r, c in self._get_empty_cells(self.board):
             self.board[r][c] = "O" # Make hypothetical move for bot
             score = self._minimax(self.board, False) # Evaluate human's response to this move
-            self.board[r][c] = " " # Undo hypothetical move
+            self.board[r][c] = " ", # Undo hypothetical move
 
             if score > best_score:
                 best_score = score
@@ -901,16 +910,25 @@ class TicTacToeView(discord.ui.View):
             
             # Check for win or draw after bot's move
             if self._check_winner():
-                winner = self.players[self.current_player].display_name
+                winner_player = self.players[self.current_player]
+                loser_player = self.players["X" if self.current_player == "O" else "O"] # The other player is the loser
+
+                # Only update human player's kekchipz
+                if winner_player.id == interaction.user.id: # Human wins
+                    await update_user_kekchipz(interaction.guild.id, interaction.user.id, 100)
+                elif loser_player.id == interaction.user.id: # Human loses (bot wins)
+                    await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
+
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner} wins!** 🎉",
+                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
                 del active_tictactoe_games[interaction.channel.id]
             elif self._check_draw():
+                await update_user_kekchipz(interaction.guild.id, interaction.user.id, 25) # Human player gets kekchipz for a draw
                 await interaction.edit_original_response(
-                    content="It's a **draw!** �",
+                    content="It's a **draw!** 🤝",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -999,6 +1017,56 @@ async def add_user_to_db_if_not_exists(guild_id: int, user_name: str, discord_id
         print(f"Database operation failed for user {user_name} (ID: {discord_id}): MySQL Error: {e}")
     except Exception as e:
         print(f"Database operation failed for user {user_name} (ID: {discord_id}): An unexpected error occurred: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+async def update_user_kekchipz(guild_id: int, discord_id: int, amount: int):
+    """
+    Updates the kekchipz balance for a user in the database.
+    """
+    db_user = os.getenv('DB_USER')
+    db_password = os.getenv('DB_PASSWORD')
+    db_host = os.getenv('DB_HOST')
+    db_name = "serene_users"
+    table_name = "discord_users"
+
+    if not all([db_user, db_password, db_host]):
+        print("Database operation failed: Missing one or more environment variables (DB_USER, DB_PASSWORD, DB_HOST).")
+        return
+
+    conn = None
+    try:
+        conn = await aiomysql.connect(
+            host=db_host,
+            user=db_user,
+            password=db_password,
+            db=db_name,
+            charset='utf8mb4',
+            autocommit=True
+        )
+        async with conn.cursor() as cursor:
+            # Fetch current kekchipz
+            await cursor.execute(
+                f"SELECT kekchipz FROM {table_name} WHERE channel_id = %s AND discord_id = %s",
+                (str(guild_id), str(discord_id))
+            )
+            result = await cursor.fetchone()
+            
+            current_kekchipz = result[0] if result else 0
+            new_kekchipz = current_kekchipz + amount
+
+            # Update kekchipz
+            await cursor.execute(
+                f"UPDATE {table_name} SET kekchipz = %s WHERE channel_id = %s AND discord_id = %s",
+                (new_kekchipz, str(guild_id), str(discord_id))
+            )
+            print(f"Updated kekchipz for user {discord_id} in guild {guild_id}: {current_kekchipz} -> {new_kekchipz}")
+
+    except aiomysql.Error as e:
+        print(f"Database update failed for user {discord_id}: MySQL Error: {e}")
+    except Exception as e:
+        print(f"Database update failed for user {discord_id}: An unexpected error occurred: {e}")
     finally:
         if conn:
             conn.close()
