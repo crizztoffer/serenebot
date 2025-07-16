@@ -24,6 +24,7 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 # --- Game State Storage ---
 active_tictactoe_games = {}
 active_jeopardy_games = {} # Re-introducing this for the new Jeopardy game
+active_blackjack_games = {} # New storage for Blackjack games
 
 # --- Helper for fuzzy matching (MODIFIED to use Levenshtein distance) ---
 def levenshtein_distance(s1: str, s2: str) -> int:
@@ -151,7 +152,7 @@ class CategoryValueSelect(discord.ui.Select):
                     # Keep game.board_message as is if deletion fails due to permissions,
                     # as it might still be visible but uneditable.
                 except Exception as delete_e:
-                    print(f"WARNING: An unexpected error occurred during original board message deletion: {delete_message}: {delete_e}")
+                    print(f"WARNING: An unexpected error occurred during original board message deletion: {delete_e}")
                     game.board_message = None # Assume it's gone or broken
             
             # --- Determine the correct prefix using Gemini ---
@@ -746,7 +747,7 @@ class TicTacToeButton(discord.ui.Button):
         elif view._check_draw():
             await update_user_kekchipz(interaction.guild.id, interaction.user.id, 25) # Human player gets kekchipz for a draw
             await interaction.edit_original_response(
-                content="It's a **draw!** �",
+                content="It's a **draw!** 🤝",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -937,7 +938,7 @@ class TicTacToeView(discord.ui.View):
             elif self._check_draw():
                 await update_user_kekchipz(interaction.guild.id, interaction.user.id, 25) # Human player gets kekchipz for a draw
                 await interaction.edit_original_response(
-                    content="It's a **draw!** 🤝",
+                    content="It's a **draw!** �",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -1556,6 +1557,46 @@ async def story_command(interaction: discord.Interaction):
     await interaction.followup.send(display_message)
 
 
+# --- New Blackjack Game Class ---
+class BlackjackGame:
+    """
+    Represents a single Blackjack game instance.
+    Manages game state, player and dealer hands, and card deck.
+    """
+    def __init__(self, channel_id: int, player: discord.User):
+        self.channel_id = channel_id
+        self.player = player
+        self.deck = []  # Stores the full deck of cards
+        self.player_hand = []
+        self.dealer_hand = []
+        self.game_message = None # To store the message containing the game UI
+        self.game_data_url = "https://serenekeks.com/serene_bot_games.php"
+
+    async def fetch_card_data(self) -> bool:
+        """
+        Fetches card data from the backend.
+        Returns True if data is successfully fetched, False otherwise.
+        """
+        try:
+            params = {"cards": "true"}
+            encoded_params = urllib.parse.urlencode(params)
+            full_url = f"{self.game_data_url}?{encoded_params}"
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(full_url) as response:
+                    if response.status == 200:
+                        card_data = await response.json()
+                        self.deck = card_data.get("cards", [])
+                        print(f"Card data fetched for Blackjack game in channel {self.channel_id}.")
+                        return True
+                    else:
+                        print(f"Error fetching card data: HTTP Status {response.status}")
+                        return False
+        except Exception as e:
+            print(f"Error loading card data: {e}")
+            return False
+
+
 @serene_group.command(name="game", description="Start a fun game with Serene!")
 @app_commands.choices(game_type=[
     app_commands.Choice(name="Tic-Tac-Toe", value="tic_tac_toe"),
@@ -1631,10 +1672,33 @@ async def game_command(interaction: discord.Interaction, game_type: str):
             )
             return
     elif game_type == "blackjack": # Placeholder for Blackjack
-        await interaction.followup.send(
-            "Blackjack is not yet implemented. Stay tuned!",
-            ephemeral=True
-        )
+        if interaction.channel.id in active_blackjack_games:
+            await interaction.followup.send(
+                "A Blackjack game is already active in this channel! Please finish it or wait.",
+                ephemeral=True
+            )
+            return
+        
+        await interaction.followup.send("Setting up Blackjack game...", ephemeral=True)
+        
+        blackjack_game = BlackjackGame(interaction.channel.id, interaction.user)
+        
+        success = await blackjack_game.fetch_card_data()
+
+        if success:
+            active_blackjack_games[interaction.channel.id] = blackjack_game
+            await interaction.followup.send(
+                f"Blackjack game started for {blackjack_game.player.display_name}! Cards loaded successfully.",
+                ephemeral=False # Make this visible to everyone
+            )
+            # Future: Add game start logic here (deal cards, show initial hands, etc.)
+        else:
+            await interaction.followup.send(
+                "Failed to load Blackjack card data. Please try again later.",
+                ephemeral=True
+            )
+            return
+
     elif game_type == "texas_hold_em": # Placeholder for Texas Hold 'em
         await interaction.followup.send(
             "Texas Hold 'em is not yet implemented. Stay tuned!",
@@ -1653,4 +1717,3 @@ if BOT_TOKEN is None:
     print("Error: BOT_TOKEN environment variable not set.")
 else:
     bot.run(BOT_TOKEN)
-    
