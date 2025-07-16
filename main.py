@@ -134,8 +134,6 @@ class CategoryValueSelect(discord.ui.Select):
             question_data["guessed"] = True
             game.current_question = question_data # Set current question in game state
 
-            # Removed debug print: print(f"DEBUG: Selected question_data: {question_data}")
-
             # Clear the view's internal selection state (not strictly necessary but good practice)
             view._selected_category = None
             view._selected_value = None
@@ -631,8 +629,13 @@ class NewJeopardyGame:
         Returns True if data is successfully fetched and parsed, False otherwise.
         """
         try:
+            # Construct the URL with the 'jeopardy' parameter
+            params = {"jeopardy": "true"}
+            encoded_params = urllib.parse.urlencode(params)
+            full_url = f"{self.jeopardy_data_url}?{encoded_params}"
+
             async with aiohttp.ClientSession() as session:
-                async with session.get(self.jeopardy_data_url) as response:
+                async with session.get(full_url) as response:
                     if response.status == 200:
                         full_data = await response.json()
                         
@@ -926,7 +929,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** �",
+                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -1456,7 +1459,7 @@ async def story_command(interaction: discord.Interaction):
         - "took a cock so big that they [verb_past_tense]"
         - "put their thing down, flipped it, and reversed it so perfectly, that they [verb_past_tense]"
         - "waffle-spanked a vagrant so hard that they [verb_past_tense]"
-        - "kissed Crizz P."
+        "kissed Crizz P."
         "spun around so fast that they [verb_past_tense]"
         "vomitted so loudly that they [verb_past_tense]"
         "sand-blastd out a power-shart so strong, that they [verb_past_tense]"
