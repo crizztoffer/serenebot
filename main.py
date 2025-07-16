@@ -719,7 +719,7 @@ class TicTacToeButton(discord.ui.Button):
         if view._check_winner():
             winner = view.players[view.current_player].display_name
             await interaction.edit_original_response(
-                content=f"🎉 **{winner} wins!** 🎉",
+                content=f"🎉 **{winner} wins!** �",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -901,7 +901,7 @@ class TicTacToeView(discord.ui.View):
             if self._check_winner():
                 winner = self.players[self.current_player].display_name
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner} wins!** �",
+                    content=f"🎉 **{winner} wins!** 🎉",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -973,114 +973,6 @@ async def on_message(message: discord.Message):
     await bot.process_commands(message)
 
 
-# --- Consolidate commands under a single /serene command group ---
-serene_group = app_commands.Group(name="serene", description="Commands for Serene Bot.")
-bot.tree.add_command(serene_group)
-
-@serene_group.command(name="talk", description="Interact with the Serene bot backend.")
-@app_commands.describe(text_input="Your message or question for Serene.")
-async def talk_command(interaction: discord.Interaction, text_input: str):
-    """
-    Handles the /serene talk slash command.
-    Sends user input to the serene_bot.php backend and displays the response.
-    """
-    await interaction.response.defer() # Acknowledge the interaction to prevent timeout
-
-    php_backend_url = "https://serenekeks.com/serene_bot.php"
-    player_name = interaction.user.display_name
-
-    # Determine the parameter name based on the input text
-    lower_text_input = text_input.lower()
-    if lower_text_input.startswith(("hello", "hi", "hail")):
-        param_name = "hail"
-    elif lower_text_input.startswith(("start", "begin")):
-        param_name = "start"
-    else:
-        param_name = "question"
-
-    # Prepare parameters for the PHP backend
-    params = {
-        param_name: text_input,
-        "player": player_name
-    }
-    # URL-encode parameters to safely pass them in the URL
-    encoded_params = urllib.parse.urlencode(params, quote_via=urllib.parse.quote_plus)
-    full_url = f"{php_backend_url}?{encoded_params}"
-
-    try:
-        # Make an asynchronous HTTP GET request to the PHP backend
-        async with aiohttp.ClientSession() as session:
-            async with session.get(full_url) as response:
-                if response.status == 200:
-                    # If the request was successful, get the response text
-                    php_response_text = await response.text()
-                    display_message = (
-                        f"**{player_name} says:** {text_input}\n"
-                        f"**Serene says:** {php_response_text}"
-                    )
-                    await interaction.followup.send(display_message)
-                else:
-                    await interaction.followup.send(
-                        f"**{player_name} says:** {text_input}\n"
-                        f"Serene backend returned an error: HTTP Status {response.status}"
-                    )
-    except aiohttp.ClientError as e:
-        # Handle network-related errors (e.g., cannot connect to host)
-        await interaction.followup.send(
-            f"**{player_name} says:** {text_input}\n"
-            f"Could not connect to the Serene backend. Error: {e}"
-        )
-    except Exception as e:
-        # Handle any other unexpected errors
-        await interaction.followup.send(
-            f"**{player_name} says:** {text_input}\n"
-            f"An unexpected error occurred: {e}"
-        )
-
-
-@serene_group.command(name="hail", description="Hail Serene!")
-async def hail_command(interaction: discord.Interaction):
-    """
-    Handles the /serene hail slash command.
-    Sends a predefined "hail serene" message to the backend and displays the response.
-    """
-    await interaction.response.defer() # Acknowledge the interaction
-
-    php_backend_url = "https://serenekeks.com/serene_bot.php"
-    player_name = interaction.user.display_name
-
-    text_to_send = "hail serene"  # Predefined text for this command
-    param_name = "hail"
-
-    # Prepare parameters for the PHP backend
-    params = {
-        param_name: text_to_send,
-        "player": player_name
-    }
-    encoded_params = urllib.parse.urlencode(params, quote_via=urllib.parse.quote_plus)
-    full_url = f"{php_backend_url}?{encoded_params}"
-
-    try:
-        # Make an asynchronous HTTP GET request
-        async with aiohttp.ClientSession() as session:
-            async with session.get(full_url) as response:
-                if response.status == 200:
-                    php_response_text = await response.text()
-                    await interaction.followup.send(php_response_text)
-                else:
-                    await interaction.followup.send(
-                        f"Serene backend returned an error: HTTP Status {response.status}"
-                    )
-    except aiohttp.ClientError as e:
-        await interaction.followup.send(
-            f"Could not connect to the Serene backend. Error: {e}"
-        )
-    except Exception as e:
-        await interaction.followup.send(
-            f"An unexpected error occurred: {e}"
-        )
-
-
 # Helper function to convert a verb to its simple past tense
 def to_past_tense(verb):
     """
@@ -1131,265 +1023,334 @@ def to_past_tense(verb):
         return verb + 'ed'
 
 
-@serene_group.command(name="story", description="Generate a story with contextually appropriate nouns and verbs.")
-async def story_command(interaction: discord.Interaction):
+@bot.tree.command(name="serene", description="Interact with Serene Bot or play a game.")
+@app_commands.choices(action=[
+    app_commands.Choice(name="talk", value="talk"),
+    app_commands.Choice(name="hail", value="hail"),
+    app_commands.Choice(name="story", value="story"),
+    app_commands.Choice(name="game", value="game"),
+])
+@app_commands.describe(
+    action="Choose an action for Serene Bot.",
+    text_input="Your message or question for Serene (for 'talk' action).",
+    game_type="The type of game to play (for 'game' action)."
+)
+async def serene_command(
+    interaction: discord.Interaction,
+    action: str,
+    text_input: str | None = None,
+    game_type: str | None = None
+):
     """
-    Handles the /serene story slash command.
-    Fetches sentence structure from PHP, generates nouns and verbs using Gemini API,
-    then constructs and displays the story.
+    Handles the /serene slash command with sub-actions as parameters.
     """
-    await interaction.response.defer() # Acknowledge the interaction
+    await interaction.response.defer(ephemeral=True) # Defer to prevent timeout for all actions
 
-    php_backend_url = "https://serenekeks.com/serene_bot_2.php"
     player_name = interaction.user.display_name
 
-    # Initialize nouns and verbs with fallbacks in case of API failure
-    nouns = ["dragon", "wizard", "monster"]
-    verbs_infinitive = ["fly", "vanish"]
+    if action == "talk":
+        if not text_input:
+            await interaction.followup.send("Please provide `text_input` when using the `talk` action.", ephemeral=True)
+            return
 
-    # Initialize php_story_structure with defaults in case PHP call fails
-    php_story_structure = {
-        "first": "There once was a ",
-        "second": " who loved to ",
-        "third": ". But then one night, there came a shock… for a ",
-        "forth": " came barreling towards them before they ",
-        "fifth": " and lived happily ever after."
-    }
-    v1_form_required = "infinitive"
-    v2_form_required = "past_tense"
+        php_backend_url = "https://serenekeks.com/serene_bot.php"
+        lower_text_input = text_input.lower()
+        if lower_text_input.startswith(("hello", "hi", "hail")):
+            param_name = "hail"
+        elif lower_text_input.startswith(("start", "begin")):
+            param_name = "start"
+        else:
+            param_name = "question"
 
-    try:
-        # First, call the PHP backend to get the sentence structure
-        async with aiohttp.ClientSession() as session:
-            async with session.get(php_backend_url) as response:
-                if response.status == 200:
-                    php_story_structure = await response.json()
-                    
-                    # Extract verb form requirements from PHP response (though currently static, good practice)
-                    v1_form_required = php_story_structure.get("verb_forms", {}).get("v1_form", "infinitive")
-                    v2_form_required = php_story_structure.get("verb_forms", {}).get("v2_form", "past_tense")
+        params = {
+            param_name: text_input,
+            "player": player_name
+        }
+        encoded_params = urllib.parse.urlencode(params, quote_via=urllib.parse.quote_plus)
+        full_url = f"{php_backend_url}?{encoded_params}"
 
-                else:
-                    print(f"Warning: PHP backend call failed with status {response.status}. Using default verb forms and structure.")
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(full_url) as response:
+                    if response.status == 200:
+                        php_response_text = await response.text()
+                        display_message = (
+                            f"**{player_name} says:** {text_input}\n"
+                            f"**Serene says:** {php_response_text}"
+                        )
+                        await interaction.followup.send(display_message, ephemeral=False) # Make public
+                    else:
+                        await interaction.followup.send(
+                            f"**{player_name} says:** {text_input}\n"
+                            f"Serene backend returned an error: HTTP Status {response.status}", ephemeral=True
+                        )
+        except aiohttp.ClientError as e:
+            await interaction.followup.send(
+                f"**{player_name} says:** {text_input}\n"
+                f"Could not connect to the Serene backend. Error: {e}", ephemeral=True
+            )
+        except Exception as e:
+            await interaction.followup.send(
+                f"**{player_name} says:** {text_input}\n"
+                f"An unexpected error occurred: {e}", ephemeral=True
+            )
 
-    except aiohttp.ClientError as e:
-        print(f"Error connecting to PHP backend: {e}. Using default story structure and verb forms.")
-    except Exception as e:
-        print(f"An unexpected error occurred while fetching PHP structure: {e}. Using default story structure and verb forms.")
+    elif action == "hail":
+        php_backend_url = "https://serenekeks.com/serene_bot.php"
+        text_to_send = "hail serene"
+        param_name = "hail"
 
+        params = {
+            param_name: text_to_send,
+            "player": player_name
+        }
+        encoded_params = urllib.parse.urlencode(params, quote_via=urllib.parse.quote_plus)
+        full_url = f"{php_backend_url}?{encoded_params}"
 
-    try:
-        # Prompt for the Gemini API to get contextually appropriate words
-        # The prompt is significantly refined to ensure variety and contextual cohesion
-        gemini_prompt = """
-        Generate 3 distinct, imaginative, and often absurd or whimsical nouns. These nouns should be simple, common, and in **lowercase**.
-        Also, generate 2 distinct, action-oriented verbs in their BASE/INFINITIVE form. These verbs must be simple, common, and in **lowercase**. They must be suitable for both an infinitive context (e.g., "loved to [verb]") and a simple past tense context (e.g., "they [verb_past_tense]").
-        Crucially, consider the following specific PHP sentence fragments where these verbs will be inserted. Ensure the BASE verb makes sense in these contexts, even when later conjugated to past tense:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(full_url) as response:
+                    if response.status == 200:
+                        php_response_text = await response.text()
+                        await interaction.followup.send(php_response_text, ephemeral=False) # Make public
+                    else:
+                        await interaction.followup.send(
+                            f"Serene backend returned an error: HTTP Status {response.status}", ephemeral=True
+                        )
+        except aiohttp.ClientError as e:
+            await interaction.followup.send(
+                f"Could not connect to the Serene backend. Error: {e}", ephemeral=True
+            )
+        except Exception as e:
+            await interaction.followup.send(
+                f"An unexpected error occurred: {e}", ephemeral=True
+            )
 
-        **For Verb 1 (infinitive - will be used after phrases like 'loved to'):**
-        - "who loved to [verb]"
-        - "that hated to [verb]"
-        - "who used to [verb]"
-        - "that preferred to [verb]"
-        - "spent their life trying to [verb]"
+    elif action == "story":
+        php_backend_url = "https://serenekeks.com/serene_bot_2.php"
 
-        **For Verb 2 (will be converted to simple past tense - will be used after phrases like 'before they'):**
-        - "came barreling towards them before they [verb_past_tense]"
-        - "fell from the heavens just as they [verb_past_tense]"
-        - "slipped off the roof above—and with a thump—they [verb_past_tense]"
-        - "shit out a turd that flew out of their ass so fast, they [verb_past_tense]"
-        - "busted a nut so hard, they [verb_past_tense]"
-        - "burped so loud, they [verb_past_tense]"
-        - "rocketd right into their face—so hard that they [verb_past_tense]"
-        - "crossed over the great divide, gave Jesus a high five, and flew back down with such velocity, that they [verb_past_tense]"
-        - "told such a bad joke that they [verb_past_tense]"
-        - "whispered so quietly that they [verb_past_tense]"
-        - "pissed so loudly that they [verb_past_tense]"
-        - "took a cock so big that they [verb_past_tense]"
-        - "put their thing down, flipped it, and reversed it so perfectly, that they [verb_past_tense]"
-        - "waffle-spanked a vagrant so hard that they [verb_past_tense]"
-        - "kissed Crizz P."
-        "spun around so fast that they [verb_past_tense]"
-        "vomitted so loudly that they [verb_past_tense]"
-        "sand-blastd out a power-shart so strong, that they [verb_past_tense]"
-        "slipped off the roof above—and with a thump—they [verb_past_tense]"
+        nouns = ["dragon", "wizard", "monster"]
+        verbs_infinitive = ["fly", "vanish"]
+        php_story_structure = {
+            "first": "There once was a ",
+            "second": " who loved to ",
+            "third": ". But then one night, there came a shock… for a ",
+            "forth": " came barreling towards them before they ",
+            "fifth": " and lived happily ever after."
+        }
+        v1_form_required = "infinitive"
+        v2_form_required = "past_tense"
 
-        Avoid verbs that are passive, imply a state of being, or require complex grammatical structures (e.g., phrasal verbs that depend heavily on prepositions) to make sense in these direct contexts. Focus on verbs that are direct and complete actions.
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(php_backend_url) as response:
+                    if response.status == 200:
+                        php_story_structure = await response.json()
+                        v1_form_required = php_story_structure.get("verb_forms", {}).get("v1_form", "infinitive")
+                        v2_form_required = php_story_structure.get("verb_forms", {}).get("v2_form", "past_tense")
+                    else:
+                        print(f"Warning: PHP backend call failed with status {response.status}. Using default verb forms and structure.")
+        except aiohttp.ClientError as e:
+            print(f"Error connecting to PHP backend: {e}. Using default story structure and verb forms.")
+        except Exception as e:
+            print(f"An unexpected error occurred while fetching PHP structure: {e}. Using default story structure and verb forms.")
 
-        Provide the output as a JSON object with keys "nouns" (an array of 3 strings) and "verbs" (an array of 2 strings).
-        Example: {"nouns": ["dragon", "knight", "castle"], "verbs": ["escape", "explode"]}
-        """
+        try:
+            gemini_prompt = """
+            Generate 3 distinct, imaginative, and often absurd or whimsical nouns. These nouns should be simple, common, and in **lowercase**.
+            Also, generate 2 distinct, action-oriented verbs in their BASE/INFINITIVE form. These verbs must be simple, common, and in **lowercase**. They must be suitable for both an infinitive context (e.g., "loved to [verb]") and a simple past tense context (e.g., "they [verb_past_tense]").
+            Crucially, consider the following specific PHP sentence fragments where these verbs will be inserted. Ensure the BASE verb makes sense in these contexts, even when later conjugated to past tense:
 
-        chat_history = []
-        chat_history.append({"role": "user", "parts": [{"text": gemini_prompt}]})
-        
-        # Define the response schema for structured JSON output from Gemini
-        payload = {
-            "contents": chat_history,
-            "generationConfig": {
-                "responseMimeType": "application/json",
-                "responseSchema": {
-                    "type": "OBJECT",
-                    "properties": {
-                        "nouns": {
-                            "type": "ARRAY",
-                            "items": {"type": "STRING"}
+            **For Verb 1 (infinitive - will be used after phrases like 'loved to'):**
+            - "who loved to [verb]"
+            - "that hated to [verb]"
+            - "who used to [verb]"
+            - "that preferred to [verb]"
+            - "spent their life trying to [verb]"
+
+            **For Verb 2 (will be converted to simple past tense - will be used after phrases like 'before they'):**
+            - "came barreling towards them before they [verb_past_tense]"
+            - "fell from the heavens just as they [verb_past_tense]"
+            - "slipped off the roof above—and with a thump—they [verb_past_tense]"
+            - "shit out a turd that flew out of their ass so fast, they [verb_past_tense]"
+            - "busted a nut so hard, they [verb_past_tense]"
+            - "burped so loud, they [verb_past_tense]"
+            - "rocketd right into their face—so hard that they [verb_past_tense]"
+            - "crossed over the great divide, gave Jesus a high five, and flew back down with such velocity, that they [verb_past_tense]"
+            - "told such a bad joke that they [verb_past_tense]"
+            - "whispered so quietly that they [verb_past_tense]"
+            - "pissed so loudly that they [verb_past_tense]"
+            - "took a cock so big that they [verb_past_tense]"
+            - "put their thing down, flipped it, and reversed it so perfectly, that they [verb_past_tense]"
+            - "waffle-spanked a vagrant so hard that they [verb_past_tense]"
+            - "kissed Crizz P."
+            "spun around so fast that they [verb_past_tense]"
+            "vomitted so loudly that they [verb_past_tense]"
+            "sand-blastd out a power-shart so strong, that they [verb_past_tense]"
+            "slipped off the roof above—and with a thump—they [verb_past_tense]"
+
+            Avoid verbs that are passive, imply a state of being, or require complex grammatical structures (e.g., phrasal verbs that depend heavily on prepositions) to make sense in these direct contexts. Focus on verbs that are direct and complete actions.
+
+            Provide the output as a JSON object with keys "nouns" (an array of 3 strings) and "verbs" (an array of 2 strings).
+            Example: {"nouns": ["dragon", "knight", "castle"], "verbs": ["escape", "explode"]}
+            """
+
+            chat_history = []
+            chat_history.append({"role": "user", "parts": [{"text": gemini_prompt}]})
+            
+            payload = {
+                "contents": chat_history,
+                "generationConfig": {
+                    "responseMimeType": "application/json",
+                    "responseSchema": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "nouns": {
+                                "type": "ARRAY",
+                                "items": {"type": "STRING"}
+                            },
+                            "verbs": {
+                                "type": "ARRAY",
+                                "items": {"type": "STRING"}
+                            }
                         },
-                        "verbs": {
-                            "type": "ARRAY",
-                            "items": {"type": "STRING"}
-                        }
-                    },
-                    "propertyOrdering": ["nouns", "verbs"]
+                        "propertyOrdering": ["nouns", "verbs"]
+                    }
                 }
             }
-        }
-        
-        # Load the API key from environment variables
-        # This is essential for deployment on platforms like Railway
-        api_key = os.getenv('GEMINI_API_KEY')
-        if api_key is None:
-            print("Error: GEMINI_API_KEY environment variable not set. Gemini API calls will fail.")
-            # Fallback to default words if API key is not set
-            nouns = ["creature", "forest", "adventure"]
-            verbs_infinfinitive = ["walk", "discover"]
-        
-        # Only attempt API call if API key is available
-        if api_key:
-            api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+            
+            api_key = os.getenv('GEMINI_API_KEY')
+            if api_key is None:
+                print("Error: GEMINI_API_KEY environment variable not set. Gemini API calls will fail.")
+                nouns = ["creature", "forest", "adventure"]
+                verbs_infinitive = ["walk", "discover"]
+            
+            if api_key:
+                api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(api_url, headers={'Content-Type': 'application/json'}, json=payload) as response:
-                    if response.status == 200:
-                        gemini_result = await response.json()
-                        
-                        if gemini_result.get("candidates") and len(gemini_result["candidates"]) > 0 and \
-                           gemini_result["candidates"][0].get("content") and \
-                           gemini_result["candidates"][0]["content"].get("parts") and \
-                           len(gemini_result["candidates"][0]["content"]["parts"]) > 0:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(api_url, headers={'Content-Type': 'application/json'}, json=payload) as response:
+                        if response.status == 200:
+                            gemini_result = await response.json()
                             
-                            generated_json_str = gemini_result["candidates"][0]["content"]["parts"][0]["text"]
-                            generated_words = json.loads(generated_json_str)
-                            
-                            nouns = [n.lower() for n in generated_words.get("nouns", ["thing", "place", "event"])]
-                            verbs_infinitive = [v.lower() for v in generated_words.get("verbs", ["do", "happen"])]
-                            
-                            nouns = (nouns + ["thing", "place", "event"])[:3]
-                            verbs_infinitive = (verbs_infinitive + ["do", "happen"])[:2] 
+                            if gemini_result.get("candidates") and len(gemini_result["candidates"]) > 0 and \
+                               gemini_result["candidates"][0].get("content") and \
+                               gemini_result["candidates"][0]["content"].get("parts") and \
+                               len(gemini_result["candidates"][0]["content"]["parts"]) > 0:
+                                
+                                generated_json_str = gemini_result["candidates"][0]["content"]["parts"][0]["text"]
+                                generated_words = json.loads(generated_json_str)
+                                
+                                nouns = [n.lower() for n in generated_words.get("nouns", ["thing", "place", "event"])]
+                                verbs_infinitive = [v.lower() for v in generated_words.get("verbs", ["do", "happen"])]
+                                
+                                nouns = (nouns + ["thing", "place", "event"])[:3]
+                                verbs_infinitive = (verbs_infinitive + ["do", "happen"])[:2] 
+
+                            else:
+                                print("Warning: Gemini response structure unexpected. Using fallback words.")
 
                         else:
-                            print("Warning: Gemini response structure unexpected. Using fallback words.")
+                            print(f"Warning: Gemini API call failed with status {response.status}. Using fallback words.")
 
-                    else:
-                        print(f"Warning: Gemini API call failed with status {response.status}. Using fallback words.")
+        except Exception as e:
+            print(f"Error calling Gemini API: {e}. Using fallback words.")
 
-    except Exception as e:
-        print(f"Error calling Gemini API: {e}. Using fallback words.")
+        verb1_final = verbs_infinitive[0]
+        if v1_form_required == "past_tense":
+            verb1_final = to_past_tense(verbs_infinitive[0])
 
-    # Conjugate verbs based on PHP's requirements (obtained from php_story_structure)
-    verb1_final = verbs_infinitive[0]
-    if v1_form_required == "past_tense":
-        verb1_final = to_past_tense(verbs_infinitive[0])
-
-    verb2_final = verbs_infinitive[1]
-    if v2_form_required == "past_tense":
-        verb2_final = to_past_tense(verbs_infinitive[1])
+        verb2_final = verbs_infinitive[1]
+        if v2_form_required == "past_tense":
+            verb2_final = to_past_tense(verbs_infinitive[1])
 
 
-    # Assemble the full story using PHP's structure and generated words
-    full_story = (
-        php_story_structure["first"] + nouns[0] +
-        php_story_structure["second"] + verb1_final +
-        php_story_structure["third"] + nouns[1] +
-        php_story_structure["forth"] + verb2_final +
-        php_story_structure["fifth"]
-    )
-
-    display_message = (
-        f"**{player_name} asked for a story**\n"
-        f"**Serene says:** {full_story}"
-    )
-    await interaction.followup.send(display_message)
-
-
-@serene_group.command(name="game", description="Start a fun game with Serene!")
-@app_commands.choices(game_type=[
-    app_commands.Choice(name="Tic-Tac-Toe", value="tic_tac_toe"),
-    app_commands.Choice(name="Jeopardy", value="jeopardy"),
-])
-@app_commands.describe(game_type="The type of game to play.")
-async def game_command(interaction: discord.Interaction, game_type: str):
-    """
-    Handles the /serene game slash command.
-    Starts the selected game directly.
-    """
-    await interaction.response.defer(ephemeral=True)
-
-    if game_type == "tic_tac_toe":
-        if interaction.channel.id in active_tictactoe_games:
-            await interaction.followup.send(
-                "A Tic-Tac-Toe game is already active in this channel! Please finish it or wait.",
-                ephemeral=True
-            )
-            return
-
-        player1 = interaction.user
-        player2 = bot.user
-
-        await interaction.followup.send(
-            f"Starting Tic-Tac-Toe for {player1.display_name} vs. {player2.display_name}...",
-            ephemeral=True
+        full_story = (
+            php_story_structure["first"] + nouns[0] +
+            php_story_structure["second"] + verb1_final +
+            php_story_structure["third"] + nouns[1] +
+            php_story_structure["forth"] + verb2_final +
+            php_story_structure["fifth"]
         )
 
-        game_view = TicTacToeView(player_x=player1, player_o=player2)
-        
-        game_message = await interaction.channel.send(
-            content=f"It's **{player1.display_name}**'s turn (X)",
-            embed=game_view._start_game_message(),
-            view=game_view
+        display_message = (
+            f"**{player_name} asked for a story**\n"
+            f"**Serene says:** {full_story}"
         )
-        game_view.message = game_message
-        active_tictactoe_games[interaction.channel.id] = game_view
+        await interaction.followup.send(display_message, ephemeral=False) # Make public
 
-    elif game_type == "jeopardy":
-        if interaction.channel.id in active_jeopardy_games:
+    elif action == "game":
+        if not game_type:
+            await interaction.followup.send("Please provide `game_type` when using the `game` action.", ephemeral=True)
+            return
+
+        if game_type == "tic_tac_toe":
+            if interaction.channel.id in active_tictactoe_games:
+                await interaction.followup.send(
+                    "A Tic-Tac-Toe game is already active in this channel! Please finish it or wait.",
+                    ephemeral=True
+                )
+                return
+
+            player1 = interaction.user
+            player2 = bot.user
+
             await interaction.followup.send(
-                "A Jeopardy game is already active in this channel! Please finish it or wait.",
+                f"Starting Tic-Tac-Toe for {player1.display_name} vs. {player2.display_name}...",
                 ephemeral=True
             )
-            return
-        
-        await interaction.followup.send("Setting up Jeopardy game...", ephemeral=True)
-        
-        jeopardy_game = NewJeopardyGame(interaction.channel.id, interaction.user)
-        
-        success = await jeopardy_game.fetch_and_parse_jeopardy_data()
 
-        if success:
-            active_jeopardy_games[interaction.channel.id] = jeopardy_game
+            game_view = TicTacToeView(player_x=player1, player_o=player2)
             
-            jeopardy_view = JeopardyGameView(jeopardy_game)
-            jeopardy_view.add_board_components()
-            
-            # Formatted score for negative values on initial board message
             game_message = await interaction.channel.send(
-                content=f"**{jeopardy_game.player.display_name}**'s Score: **{'-' if jeopardy_game.score < 0 else ''}${abs(jeopardy_game.score)}**\n\n"
-                        "Select a category and value from the dropdowns below!",
-                view=jeopardy_view
+                content=f"It's **{player1.display_name}**'s turn (X)",
+                embed=game_view._start_game_message(),
+                view=game_view
             )
-            jeopardy_game.board_message = game_message
+            game_view.message = game_message
+            active_tictactoe_games[interaction.channel.id] = game_view
 
+        elif game_type == "jeopardy":
+            if interaction.channel.id in active_jeopardy_games:
+                await interaction.followup.send(
+                    "A Jeopardy game is already active in this channel! Please finish it or wait.",
+                    ephemeral=True
+                )
+                return
+            
+            await interaction.followup.send("Setting up Jeopardy game...", ephemeral=True)
+            
+            jeopardy_game = NewJeopardyGame(interaction.channel.id, interaction.user)
+            
+            success = await jeopardy_game.fetch_and_parse_jeopardy_data()
+
+            if success:
+                active_jeopardy_games[interaction.channel.id] = jeopardy_game
+                
+                jeopardy_view = JeopardyGameView(jeopardy_game)
+                jeopardy_view.add_board_components()
+                
+                game_message = await interaction.channel.send(
+                    content=f"**{jeopardy_game.player.display_name}**'s Score: **{'-' if jeopardy_game.score < 0 else ''}${abs(jeopardy_game.score)}**\n\n"
+                            "Select a category and value from the dropdowns below!",
+                    view=jeopardy_view
+                )
+                jeopardy_game.board_message = game_message
+
+            else:
+                await interaction.followup.send(
+                    "Failed to load Jeopardy game data. Please try again later.",
+                    ephemeral=True
+                )
+                return
         else:
             await interaction.followup.send(
-                "Failed to load Jeopardy game data. Please try again later.",
+                f"Invalid game type '{game_type}'. Please choose 'Tic-Tac-Toe' or 'Jeopardy'.",
                 ephemeral=True
             )
-            return
     else:
-        await interaction.followup.send(
-            f"Game type '{game_type}' is not yet implemented. Stay tuned!",
-            ephemeral=True
-        )
+        await interaction.followup.send("Invalid action. Please choose from 'talk', 'hail', 'story', or 'game'.", ephemeral=True)
+
 
 # Load environment variables for the token
 BOT_TOKEN = os.getenv('BOT_TOKEN')
