@@ -13,7 +13,7 @@ import aiomysql # Import aiomysql for asynchronous MySQL connection
 
 # Define intents
 intents = discord.Intents.default()
-intents.members = True
+intents.members = True # Ensure this intent is enabled for accessing guild members
 intents.presences = True
 intents.message_content = True
 
@@ -941,7 +941,7 @@ class TicTacToeView(discord.ui.View):
             except Exception as e:
                 print(f"WARNING: An error occurred editing board message on timeout: {e}")
         
-        # Changed self.game.channel_id to self.game.channel_id
+        # Changed self.game.channel.id to self.game.channel_id
         if self.game.channel_id in active_tictactoe_games:
             del active_tictactoe_games[self.game.channel_id]
         print(f"Tic-Tac-Toe game in channel {self.game.channel_id} timed out.")
@@ -978,21 +978,25 @@ async def on_message(message: discord.Message):
     await bot.process_commands(message)
 
 
-# --- Hourly Database Connection Check ---
+# --- Hourly Database Connection Check and User Sync ---
 @tasks.loop(hours=1)
 async def hourly_db_check():
     """
-    Attempts to connect to the MySQL database every hour using environment variables.
+    Attempts to connect to the MySQL database every hour and syncs Discord members.
     Logs success or failure to the console.
     """
-    print("Attempting hourly database connection check...")
+    print("Attempting hourly database connection and user sync...")
+    
+    # Wait until the bot is fully ready and has access to guild data
+    await bot.wait_until_ready()
+
     db_user = os.getenv('DB_USER')
     db_password = os.getenv('DB_PASSWORD')
     db_host = os.getenv('DB_HOST')
     db_name = "serene_users" # The user specified "serene_users" datatable
 
     if not all([db_user, db_password, db_host]):
-        print("Database connection failed: Missing one or more environment variables (DB_USER, DB_PASSWORD, DB_HOST).")
+        print("Database operation skipped: Missing one or more environment variables (DB_USER, DB_PASSWORD, DB_HOST).")
         return
 
     conn = None
@@ -1002,13 +1006,48 @@ async def hourly_db_check():
             user=db_user,
             password=db_password,
             db=db_name,
-            autocommit=True # Set autocommit to True for simple connection check
+            autocommit=True # Set autocommit to True for simple connection check and inserts
         )
         print(f"Successfully connected to MySQL database '{db_name}' on host '{db_host}' as user '{db_user}'.")
+
+        async with conn.cursor() as cur:
+            for guild in bot.guilds:
+                print(f"Processing guild: {guild.name} (ID: {guild.id})")
+                for member in guild.members:
+                    # Skip bots to only store human users
+                    if member.bot:
+                        continue
+
+                    channel_id = str(guild.id)
+                    user_name = member.display_name
+                    discord_id = str(member.id)
+                    kekchipz = 0 # Default value as specified
+                    json_data = json.dumps({"warnings": {}}) # Empty JSON object for warnings
+
+                    # Check if the user already exists in the database
+                    await cur.execute(
+                        "SELECT discord_id FROM serene_users WHERE discord_id = %s",
+                        (discord_id,)
+                    )
+                    result = await cur.fetchone()
+
+                    if result is None:
+                        # User does not exist, insert new row
+                        try:
+                            await cur.execute(
+                                "INSERT INTO serene_users (channel_id, user_name, discord_id, kekchipz, json_data) VALUES (%s, %s, %s, %s, %s)",
+                                (channel_id, user_name, discord_id, kekchipz, json_data)
+                            )
+                            print(f"Inserted new user: {user_name} (Discord ID: {discord_id}) in guild {guild.name}")
+                        except aiomysql.Error as insert_e:
+                            print(f"Error inserting user {user_name} (ID: {discord_id}): {insert_e}")
+                    # else:
+                    #     print(f"User {user_name} (ID: {discord_id}) already exists. Skipping insertion.")
+
     except aiomysql.Error as e:
-        print(f"Database connection failed: MySQL Error: {e}")
+        print(f"Database operation failed: MySQL Error: {e}")
     except Exception as e:
-        print(f"Database connection failed: An unexpected error occurred: {e}")
+        print(f"Database operation failed: An unexpected error occurred: {e}")
     finally:
         if conn:
             conn.close()
@@ -1032,7 +1071,7 @@ def to_past_tense(verb):
         "go": "went", "come": "came", "see": "saw", "say": "said", "make": "made",
         "take": "took", "know": "knew", "get": "got", "give": "gave", "find": "found",
         "think": "thought", "tell": "told", "become": "became", "show": "showed",
-        "leave": "left", "feel": "felt", "put": "put", "bring": "brought", "begin": "began",
+        "leave": "left", "feel": "felt", "put": "put", "put", "bring": "brought", "begin": "began",
         "run": "ran", "eat": "ate", "sing": "sang", "drink": "drank", "swim": "swam",
         "break": "broke", "choose": "chose", "drive": "drove", "fall": "fell", "fly": "flew",
         "forget": "forgot", "hold": "held", "read": "read", "ride": "rode", "speak": "spoke",
