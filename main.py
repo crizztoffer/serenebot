@@ -930,7 +930,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** �",
+                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -1609,7 +1609,7 @@ class BlackjackGame:
         if not self.deck:
             # Handle case where deck is empty (e.g., reshuffle or end game)
             print("Warning: Deck is empty, cannot deal more cards.")
-            return {"title": "No Card", "cardNumber": 0} # Return a dummy card
+            return {"title": "No Card", "cardNumber": 0, "image": ""} # Return a dummy card with empty image
         
         card = random.choice(self.deck)
         self.deck.remove(card) # Remove the dealt card from the deck
@@ -1641,7 +1641,7 @@ class BlackjackGame:
     async def start_game(self, interaction: discord.Interaction):
         """
         Starts the Blackjack game: fetches cards, shuffles, deals initial hands,
-        and displays the initial state.
+        and displays the initial state using an embed with a card thumbnail.
         """
         success = await self.fetch_card_data()
         if not success or not self.deck:
@@ -1661,16 +1661,37 @@ class BlackjackGame:
         dealer_visible_card_title = self.dealer_hand[0]["title"]
         
         player_value = self.calculate_hand_value(self.player_hand)
+        dealer_visible_value = self.calculate_hand_value([self.dealer_hand[0]])
 
-        game_display = (
-            f"**Blackjack Game Started!**\n\n"
-            f"**{self.player.display_name}'s Hand:** {', '.join(player_hand_titles)} (Value: {player_value})\n"
-            f"**Dealer's Hand:** {dealer_visible_card_title}, [Hidden Card]\n\n"
-            "What would you like to do? (Hit or Stand)"
+        # Create an embed for the game display
+        embed = discord.Embed(
+            title="Blackjack Game Started!",
+            description=f"**{self.player.display_name} vs. Dealer**",
+            color=discord.Color.dark_green()
         )
 
-        # For now, just send the initial display. Future: add buttons for Hit/Stand
-        self.game_message = await interaction.channel.send(game_display)
+        # Add player's hand field
+        embed.add_field(
+            name=f"{self.player.display_name}'s Hand (Value: {player_value})",
+            value=f"{', '.join(player_hand_titles)}",
+            inline=False
+        )
+
+        # Add dealer's hand field (with one card hidden)
+        embed.add_field(
+            name=f"Dealer's Hand (Value: {dealer_visible_value} + ?)",
+            value=f"{dealer_visible_card_title}, [Hidden Card]",
+            inline=False
+        )
+
+        # Set a thumbnail for the embed using the image of the player's first card
+        if self.player_hand and "image" in self.player_hand[0] and self.player_hand[0]["image"]:
+            embed.set_thumbnail(url=self.player_hand[0]["image"])
+        
+        embed.set_footer(text="What would you like to do? (Hit or Stand)")
+
+        # Send the embed
+        self.game_message = await interaction.channel.send(embed=embed)
         active_blackjack_games[self.channel_id] = self # Store the game instance
 
 
