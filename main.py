@@ -1194,7 +1194,7 @@ def to_past_tense(verb):
         "go": "went", "come": "came", "see": "saw", "say": "said", "make": "made",
         "take": "took", "know": "knew", "get": "got", "give": "gave", "find": "found",
         "think": "thought", "tell": "told", "become": "became", "show": "showed",
-        "leave": "left", "feel": "felt", "put": "put", "bring": "brought", "begin": "began",
+        "leave": "left", "feel": "felt", "put": "put", "put", "bring": "brought", "begin": "began",
         "run": "ran", "eat": "ate", "sing": "sang", "drink": "drank", "swim": "swam",
         "break": "broke", "choose": "chose", "drive": "drove", "fall": "fell", "fly": "flew",
         "forget": "forgot", "hold": "held", "read": "read", "ride": "rode", "speak": "spoke",
@@ -1708,6 +1708,15 @@ class BlackjackGameView(discord.ui.View):
             return
 
         await interaction.response.defer() # Acknowledge the interaction
+
+        # Delete the old game message to ensure a clean slate for the new game
+        if self.message:
+            try:
+                await self.message.delete()
+            except discord.errors.NotFound:
+                print("WARNING: Old game message not found during 'Play Again' cleanup, likely already deleted.")
+            except Exception as e:
+                print(f"WARNING: An error occurred deleting old game message during 'Play Again': {e}")
 
         # Clear the old game from active games if it's still there
         if interaction.channel.id in active_blackjack_games:
