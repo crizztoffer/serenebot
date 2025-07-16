@@ -10,10 +10,11 @@ from discord.ext import commands, tasks # Import tasks for hourly execution
 from discord import app_commands, ui
 import aiohttp
 import aiomysql # Import aiomysql for asynchronous MySQL connection
+import aiomysql.cursors # Import for cursor type if needed, though default is fine for simple queries
 
 # Define intents
 intents = discord.Intents.default()
-intents.members = True
+intents.members = True # Ensure this intent is enabled to receive member events
 intents.presences = True
 intents.message_content = True
 
@@ -720,7 +721,7 @@ class TicTacToeButton(discord.ui.Button):
         if view._check_winner():
             winner = view.players[view.current_player].display_name
             await interaction.edit_original_response(
-                content=f"🎉 **{winner} wins!** 🎉",
+                content=f"🎉 **{winner} wins!** �",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -941,10 +942,65 @@ class TicTacToeView(discord.ui.View):
             except Exception as e:
                 print(f"WARNING: An error occurred editing board message on timeout: {e}")
         
-        # Changed self.game.channel_id to self.game.channel_id
+        # Changed self.game.channel.id to self.game.channel_id
         if self.game.channel_id in active_tictactoe_games:
             del active_tictactoe_games[self.game.channel_id]
         print(f"Tic-Tac-Toe game in channel {self.game.channel_id} timed out.")
+
+
+# --- Database Operations ---
+
+async def add_user_to_db_if_not_exists(guild_id: int, user_name: str, discord_id: int):
+    """
+    Checks if a user exists in the 'discord_users' table for a given guild.
+    If not, inserts a new row for the user with default values.
+    """
+    db_user = os.getenv('DB_USER')
+    db_password = os.getenv('DB_PASSWORD')
+    db_host = os.getenv('DB_HOST')
+    db_name = "serene_users" # The database name where discord_users table resides
+    table_name = "discord_users" # The table name as specified by the user
+
+    if not all([db_user, db_password, db_host]):
+        print("Database operation failed: Missing one or more environment variables (DB_USER, DB_PASSWORD, DB_HOST).")
+        return
+
+    conn = None
+    try:
+        conn = await aiomysql.connect(
+            host=db_host,
+            user=db_user,
+            password=db_password,
+            db=db_name,
+            autocommit=True # Set autocommit to True for simple connection check and inserts
+        )
+        async with conn.cursor() as cursor:
+            # Check if user already exists for this guild
+            # Use %s placeholders for parameters to prevent SQL injection
+            await cursor.execute(
+                f"SELECT COUNT(*) FROM {table_name} WHERE channel_id = %s AND discord_id = %s",
+                (str(guild_id), str(discord_id)) # Convert IDs to string as per VARCHAR column type
+            )
+            (count,) = await cursor.fetchone()
+
+            if count == 0:
+                # User does not exist, insert them
+                initial_json_data = json.dumps({"warnings": {}}) # Initialize json_data as {"warnings":{}}
+                await cursor.execute(
+                    f"INSERT INTO {table_name} (channel_id, user_name, discord_id, kekchipz, json_data) VALUES (%s, %s, %s, %s, %s)",
+                    (str(guild_id), user_name, str(discord_id), 0, initial_json_data)
+                )
+                print(f"Added new user '{user_name}' (ID: {discord_id}) to '{table_name}' in guild {guild_id}.")
+            # else:
+            #     print(f"User '{user_name}' (ID: {discord_id}) already exists in '{table_name}' for guild {guild_id}. Skipping insertion.")
+
+    except aiomysql.Error as e:
+        print(f"Database operation failed for user {user_name} (ID: {discord_id}): MySQL Error: {e}")
+    except Exception as e:
+        print(f"Database operation failed for user {user_name} (ID: {discord_id}): An unexpected error occurred: {e}")
+    finally:
+        if conn:
+            conn.close()
 
 
 # --- Bot Events ---
@@ -952,7 +1008,9 @@ class TicTacToeView(discord.ui.View):
 async def on_ready():
     """
     Event handler that runs when the bot is ready.
-    It prints the bot's login information and syncs slash commands.
+    It prints the bot's login information, syncs slash commands,
+    starts the hourly database connection check, and
+    adds all existing guild members to the database if they don't exist.
     """
     print(f'Logged in as {bot.user.name} ({bot.user.id})')
     print('------')
@@ -965,6 +1023,29 @@ async def on_ready():
     
     # Start the hourly database connection check
     hourly_db_check.start()
+
+    # --- Add existing members to database on startup ---
+    # Wait until the bot has cached all guilds and members
+    await bot.wait_until_ready() 
+    print("Checking existing guild members for database entry...")
+    for guild in bot.guilds:
+        print(f"Processing guild: {guild.name} (ID: {guild.id})")
+        for member in guild.members:
+            if not member.bot: # Only add actual users, not other bots
+                await add_user_to_db_if_not_exists(guild.id, member.display_name, member.id)
+    print("Finished checking existing guild members.")
+
+
+@bot.event
+async def on_member_join(member: discord.Member):
+    """
+    Event handler that runs when a new member joins a guild.
+    Adds the new member to the database if they don't already exist.
+    """
+    if member.bot: # Do not add bots to the database
+        return
+    print(f"New member joined: {member.display_name} (ID: {member.id}) in guild {member.guild.name} (ID: {member.guild.id}).")
+    await add_user_to_db_if_not_exists(member.guild.id, member.display_name, member.id)
 
 
 @bot.event
@@ -984,6 +1065,7 @@ async def hourly_db_check():
     """
     Attempts to connect to the MySQL database every hour using environment variables.
     Logs success or failure to the console.
+    This is primarily for monitoring database connectivity.
     """
     print("Attempting hourly database connection check...")
     db_user = os.getenv('DB_USER')
