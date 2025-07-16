@@ -719,7 +719,7 @@ class TicTacToeButton(discord.ui.Button):
         if view._check_winner():
             winner = view.players[view.current_player].display_name
             await interaction.edit_original_response(
-                content=f"🎉 **{winner} wins!** �",
+                content=f"🎉 **{winner} wins!** 🎉",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -973,12 +973,15 @@ async def on_message(message: discord.Message):
     await bot.process_commands(message)
 
 
-# --- Existing /serene command (unchanged) ---
-@bot.tree.command(name="serene", description="Interact with the Serene bot backend.")
+# --- Consolidate commands under a single /serene command group ---
+serene_group = app_commands.Group(name="serene", description="Commands for Serene Bot.")
+bot.tree.add_command(serene_group)
+
+@serene_group.command(name="talk", description="Interact with the Serene bot backend.")
 @app_commands.describe(text_input="Your message or question for Serene.")
-async def serene_command(interaction: discord.Interaction, text_input: str):
+async def talk_command(interaction: discord.Interaction, text_input: str):
     """
-    Handles the /serene slash command.
+    Handles the /serene talk slash command.
     Sends user input to the serene_bot.php backend and displays the response.
     """
     await interaction.response.defer() # Acknowledge the interaction to prevent timeout
@@ -1035,11 +1038,10 @@ async def serene_command(interaction: discord.Interaction, text_input: str):
         )
 
 
-# --- Existing /hail_serene command (unchanged) ---
-@bot.tree.command(name="hail_serene", description="Hail Serene!")
-async def hail_serene_command(interaction: discord.Interaction):
+@serene_group.command(name="hail", description="Hail Serene!")
+async def hail_command(interaction: discord.Interaction):
     """
-    Handles the /hail_serene slash command.
+    Handles the /serene hail slash command.
     Sends a predefined "hail serene" message to the backend and displays the response.
     """
     await interaction.response.defer() # Acknowledge the interaction
@@ -1129,11 +1131,10 @@ def to_past_tense(verb):
         return verb + 'ed'
 
 
-# --- MODIFIED /serene_story command (MODIFIED to use Gemini API and PHP JSON output) ---
-@bot.tree.command(name="serene_story", description="Generate a story with contextually appropriate nouns and verbs.")
-async def serene_story_command(interaction: discord.Interaction):
+@serene_group.command(name="story", description="Generate a story with contextually appropriate nouns and verbs.")
+async def story_command(interaction: discord.Interaction):
     """
-    Handles the /serene_story slash command.
+    Handles the /serene story slash command.
     Fetches sentence structure from PHP, generates nouns and verbs using Gemini API,
     then constructs and displays the story.
     """
@@ -1311,16 +1312,15 @@ async def serene_story_command(interaction: discord.Interaction):
     await interaction.followup.send(display_message)
 
 
-# --- MODIFIED /serene_game command ---
-@bot.tree.command(name="serene_game", description="Start a fun game with Serene!")
+@serene_group.command(name="game", description="Start a fun game with Serene!")
 @app_commands.choices(game_type=[
     app_commands.Choice(name="Tic-Tac-Toe", value="tic_tac_toe"),
     app_commands.Choice(name="Jeopardy", value="jeopardy"),
 ])
 @app_commands.describe(game_type="The type of game to play.")
-async def serene_game_command(interaction: discord.Interaction, game_type: str):
+async def game_command(interaction: discord.Interaction, game_type: str):
     """
-    Handles the /serene_game slash command.
+    Handles the /serene game slash command.
     Starts the selected game directly.
     """
     await interaction.response.defer(ephemeral=True)
