@@ -364,12 +364,131 @@ class CategoryValueSelect(discord.ui.Select):
                     await interaction.channel.send(f"**Double Jeopardy!** All normal jeopardy questions have been answered. Get ready for new challenges, {game.player.display_name}!")
                 elif game.game_phase == "DOUBLE_JEOPARDY" and game.is_all_questions_guessed("double_jeopardy"):
                     current_phase_completed = True
+                    
+                    # --- Final Jeopardy Logic ---
+                    if game.score <= 0:
+                        await interaction.channel.send(
+                            f"Thank you for playing Jeopardy, {game.player.display_name}! "
+                            f"Your balance is **${game.score}**, and so here's where your game ends. "
+                            "We hope to see you in Final Jeopardy very soon!"
+                        )
+                        if game.channel_id in active_jeopardy_games:
+                            del active_jeopardy_games[game.channel.id]
+                        view.stop() # Stop the current view's timeout
+                        return # End the game here
+
+                    # If player has positive earnings, proceed to Final Jeopardy
                     game.game_phase = "FINAL_JEOPARDY"
                     await interaction.channel.send(f"**Final Jeopardy!** All double jeopardy questions have been answered. Get ready for the final round, {game.player.display_name}!")
-                    # TODO: Implement Final Jeopardy wager and question logic here
-                    # For now, just end the game or wait for a specific command
+
+                    # Final Jeopardy Wager
+                    final_max_wager = max(2000, game.score)
+                    wager_prompt_message = await interaction.channel.send(
+                        f"{game.player.display_name}, your current score is **{'-' if game.score < 0 else ''}${abs(game.score)}**. "
+                        f"Please enter your Final Jeopardy wager. You can wager any amount up to **${final_max_wager}** (must be positive)."
+                    )
+
+                    def check_final_wager(m: discord.Message):
+                        return m.author.id == interaction.user.id and m.channel.id == interaction.channel.id and m.content.isdigit()
+
+                    try:
+                        final_wager_msg = await bot.wait_for('message', check=check_final_wager, timeout=60.0) # Longer timeout for wager
+                        final_wager_input = int(final_wager_msg.content)
+
+                        if final_wager_input <= 0:
+                            await interaction.channel.send("Your wager must be a positive amount. Defaulting to $1.", delete_after=5)
+                            game.current_wager = 1
+                        elif final_wager_input > final_max_wager:
+                            await interaction.channel.send(f"Your wager exceeds the maximum allowed (${final_max_wager}). Defaulting to max wager.", delete_after=5)
+                            game.current_wager = final_max_wager
+                        else:
+                            game.current_wager = final_wager_input
+                        
+                        try:
+                            await wager_prompt_message.delete()
+                            await final_wager_msg.delete()
+                        except discord.errors.Forbidden:
+                            print("WARNING: Missing permissions to delete wager messages.")
+                        except Exception as delete_e:
+                            print(f"WARNING: An unexpected error occurred during message deletion: {delete_e}")
+
+                    except asyncio.TimeoutError:
+                        await interaction.channel.send("Time's up! You didn't enter a wager. Defaulting to $0.", delete_after=5)
+                        game.current_wager = 0 # Wager 0 if timeout
+                    except Exception as e:
+                        print(f"Error getting Final Jeopardy wager: {e}")
+                        await interaction.channel.send("An error occurred while getting your wager. Defaulting to $0.", delete_after=5)
+                        game.current_wager = 0
+
+                    # Present Final Jeopardy Question
+                    final_question_data = game.final_jeopardy_data.get("final_jeopardy")
+                    if final_question_data:
+                        await interaction.channel.send(
+                            f"Your wager: **${game.current_wager}**.\n\n"
+                            f"**Final Jeopardy Category:** {final_question_data['category']}\n\n"
+                            f"**The Clue:** {final_question_data['question']}"
+                        )
+
+                        def check_final_answer(m: discord.Message):
+                            # No prefix required for Final Jeopardy answers
+                            return m.author.id == interaction.user.id and m.channel.id == interaction.channel.id
+
+                        try:
+                            final_user_answer_msg = await bot.wait_for('message', check=check_final_answer, timeout=60.0) # Longer timeout for answer
+                            final_user_raw_answer = final_user_answer_msg.content.lower().strip()
+
+                            final_correct_answer_raw_lower = final_question_data['answer'].lower()
+                            final_correct_answer_for_comparison = re.sub(r'\s*\(.*\)', '', final_correct_answer_raw_lower).strip()
+
+                            final_is_correct = False
+                            if final_user_raw_answer == final_correct_answer_for_comparison:
+                                final_is_correct = True
+                            else:
+                                final_user_words = set(re.findall(r'\b\w+\b', final_user_raw_answer))
+                                final_correct_words_full = set(re.findall(r'\b\w+\b', final_correct_answer_for_comparison))
+                                
+                                # For Final Jeopardy, all words in the correct answer are "significant"
+                                final_significant_correct_words = list(final_correct_words_full) # Convert to list for iteration
+
+                                for user_word in final_user_words:
+                                    for sig_correct_word in final_significant_correct_words:
+                                        similarity = calculate_word_similarity(user_word, sig_correct_word)
+                                        if similarity >= 70.0:
+                                            final_is_correct = True
+                                            break
+                                    if final_is_correct:
+                                        break
+                            
+                            if final_is_correct:
+                                game.score += game.current_wager
+                                await interaction.channel.send(
+                                    f"✅ Correct, {game.player.display_name}! You answered correctly and gained **${game.current_wager}**."
+                                )
+                            else:
+                                game.score -= game.current_wager
+                                await interaction.channel.send(
+                                    f"❌ Incorrect, {game.player.display_name}! The correct answer was: "
+                                    f"**__{final_question_data['answer']}__**. You lost **${game.current_wager}**."
+                                )
+                        except asyncio.TimeoutError:
+                            await interaction.channel.send(
+                                f"⏰ Time's up, {game.player.display_name}! You didn't answer in time for Final Jeopardy. "
+                                f"The correct answer was: **__{final_question_data['answer']}__**."
+                            )
+                        except Exception as e:
+                            print(f"Error waiting for Final Jeopardy answer: {e}")
+                            await interaction.channel.send("An unexpected error occurred while waiting for your Final Jeopardy answer.")
+                    else:
+                        await interaction.channel.send("Could not load Final Jeopardy question data.")
+                    
+                    # End of Final Jeopardy
+                    await interaction.channel.send(
+                        f"Final Score for {game.player.display_name}: **{'-' if game.score < 0 else ''}${abs(game.score)}**.\n"
+                        "Thank you for playing Jeopardy!"
+                    )
                     if game.channel.id in active_jeopardy_games:
                         del active_jeopardy_games[game.channel.id]
+                    view.stop() # Stop the current view's timeout
                     return # Exit if Final Jeopardy is reached, as no more dropdowns are needed
 
                 # Stop the current view before sending a new one
@@ -600,7 +719,7 @@ class TicTacToeButton(discord.ui.Button):
         if view._check_winner():
             winner = view.players[view.current_player].display_name
             await interaction.edit_original_response(
-                content=f"🎉 **{winner} wins!** 🎉",
+                content=f"🎉 **{winner} wins!** �",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
