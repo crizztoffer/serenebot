@@ -930,7 +930,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** �",
+                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -1588,24 +1588,46 @@ class BlackjackGameView(discord.ui.View):
         self.game.game_message = new_message # Update the game's message reference
 
     def _end_game_buttons(self):
-        """Disables all buttons in the view."""
+        """Disables 'Hit' and 'Stay' buttons and enables 'Play Again' button."""
         for item in self.children:
-            item.disabled = True
-        return self # Return self to update the view with disabled buttons
+            if item.custom_id in ["blackjack_hit", "blackjack_stay"]:
+                item.disabled = True
+            elif item.custom_id == "blackjack_play_again":
+                item.disabled = False # Enable the Play Again button
+        return self # Return self to update the view with disabled/enabled buttons
 
     async def on_timeout(self):
         """Called when the view times out due to inactivity."""
         if self.message:
             try:
-                await self.message.edit(content="Blackjack game timed out due to inactivity.", view=None, embed=None)
+                # Disable all buttons and add a play again button if it's not already there
+                for item in self.children:
+                    item.disabled = True
+                # Check if a play again button exists, if not, add it
+                if not any(item.custom_id == "blackjack_play_again" for item in self.children):
+                    self.add_item(discord.ui.Button(label="Play Again", style=discord.ButtonStyle.blurple, custom_id="blackjack_play_again"))
+                
+                # Re-enable the play again button specifically
+                for item in self.children:
+                    if item.custom_id == "blackjack_play_again":
+                        item.disabled = False
+                        break
+
+                await self.message.edit(content="Blackjack game timed out due to inactivity. Click 'Play Again' to start a new game.", view=self, embed=self.message.embed)
+
             except discord.errors.NotFound:
                 print("WARNING: Game message not found during timeout, likely already deleted.")
             except Exception as e:
                 print(f"WARNING: An error occurred editing game message on timeout: {e}")
         
+        # Changed self.game.channel.id to self.game.channel_id
         if self.game.channel_id in active_blackjack_games:
-            del active_blackjack_games[self.game.channel_id]
+            # We don't delete the game from active_blackjack_games here,
+            # as we want the "Play Again" button to be functional.
+            # The game will be removed when "Play Again" is clicked or a new game starts.
+            pass
         print(f"Blackjack game in channel {self.game.channel_id} timed out.")
+
 
     @discord.ui.button(label="Hit", style=discord.ButtonStyle.green, custom_id="blackjack_hit")
     async def hit_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1622,9 +1644,9 @@ class BlackjackGameView(discord.ui.View):
         if player_value > 21:
             # Player busts
             final_embed = self.game._create_game_embed(reveal_dealer=True, result_message="BUST! Serene wins.")
-            await self._update_game_message(interaction, final_embed, view_to_use=None) # Remove buttons
+            self._end_game_buttons() # Disable Hit/Stay, enable Play Again
+            await self._update_game_message(interaction, final_embed, view_to_use=self) # Update with new buttons
             await update_user_kekchipz(interaction.guild.id, interaction.user.id, -50) # Player loses kekchipz
-            self._end_game_buttons() # Disable buttons in current view instance
             del active_blackjack_games[self.game.channel_id]
             self.stop() # Stop the view
         else:
@@ -1671,12 +1693,32 @@ class BlackjackGameView(discord.ui.View):
             kekchipz_change = 0 # No change for a push
 
         final_embed = self.game._create_game_embed(reveal_dealer=True, result_message=result_message)
-        await self._update_game_message(interaction, final_embed, view_to_use=None) # Remove buttons
+        self._end_game_buttons() # Disable Hit/Stay, enable Play Again
+        await self._update_game_message(interaction, final_embed, view_to_use=self) # Update with new buttons
         await update_user_kekchipz(interaction.guild.id, interaction.user.id, kekchipz_change)
         
-        self._end_game_buttons() # Disable buttons in current view instance
         del active_blackjack_games[self.game.channel_id] # Remove game from active games
         self.stop() # Stop the view
+
+    @discord.ui.button(label="Play Again", style=discord.ButtonStyle.blurple, custom_id="blackjack_play_again", disabled=True)
+    async def play_again_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handles the 'Play Again' button click."""
+        if interaction.user.id != self.game.player.id:
+            await interaction.response.send_message("This is not your Blackjack game!", ephemeral=True)
+            return
+
+        await interaction.response.defer() # Acknowledge the interaction
+
+        # Clear the old game from active games if it's still there
+        if interaction.channel.id in active_blackjack_games:
+            del active_blackjack_games[interaction.channel.id]
+        
+        # Create and start a new Blackjack game
+        new_blackjack_game = BlackjackGame(interaction.channel.id, interaction.user)
+        await new_blackjack_game.start_game(interaction)
+
+        # Stop the old view (this instance)
+        self.stop()
 
 
 class BlackjackGame:
