@@ -717,9 +717,9 @@ class TicTacToeButton(discord.ui.Button):
         
         # Set button style based on player mark
         if self.player_mark == "X":
-            self.style = discord.ButtonStyle.primary # Blue for X
+            self.style = discord.ButtonStyle.primary
         else: # self.player_mark == "O"
-            self.style = discord.ButtonStyle.danger # Red for O
+            self.style = discord.ButtonStyle.danger
             
         self.disabled = True
         view.board[self.row][self.col] = self.player_mark # Update internal board state
@@ -930,7 +930,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
+                    content=f"🎉 **{winner_player.display_name} wins!** �",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -938,7 +938,7 @@ class TicTacToeView(discord.ui.View):
             elif self._check_draw():
                 await update_user_kekchipz(interaction.guild.id, interaction.user.id, 25) # Human player gets kekchipz for a draw
                 await interaction.edit_original_response(
-                    content="It's a **draw!** �",
+                    content="It's a **draw!** 🤝",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -1586,15 +1586,92 @@ class BlackjackGame:
                 async with session.get(full_url) as response:
                     if response.status == 200:
                         card_data = await response.json()
-                        self.deck = card_data.get("cards", [])
-                        print(f"Card data fetched for Blackjack game in channel {self.channel_id}.")
-                        return True
+                        # Ensure 'cards' key exists and is a list
+                        if "cards" in card_data and isinstance(card_data["cards"], list):
+                            self.deck = card_data["cards"]
+                            print(f"Card data fetched for Blackjack game in channel {self.channel_id}. Deck size: {len(self.deck)}")
+                            return True
+                        else:
+                            print("Error: 'cards' key not found or not a list in fetched data.")
+                            return False
                     else:
                         print(f"Error fetching card data: HTTP Status {response.status}")
                         return False
         except Exception as e:
             print(f"Error loading card data: {e}")
             return False
+
+    def deal_card(self) -> dict:
+        """
+        Deals a random card from the deck. Removes the card from the deck.
+        Returns the dealt card (dict with 'title' and 'cardNumber').
+        """
+        if not self.deck:
+            # Handle case where deck is empty (e.g., reshuffle or end game)
+            print("Warning: Deck is empty, cannot deal more cards.")
+            return {"title": "No Card", "cardNumber": 0} # Return a dummy card
+        
+        card = random.choice(self.deck)
+        self.deck.remove(card) # Remove the dealt card from the deck
+        return card
+
+    def calculate_hand_value(self, hand: list[dict]) -> int:
+        """
+        Calculates the value of a Blackjack hand.
+        Handles Aces (1 or 11) dynamically.
+        """
+        value = 0
+        num_aces = 0
+        for card in hand:
+            card_number = card.get("cardNumber", 0)
+            if card_number == 1: # Ace
+                num_aces += 1
+                value += 11 # Assume 11 initially
+            elif card_number >= 10: # Face cards (10, Jack, Queen, King)
+                value += 10
+            else: # Number cards
+                value += card_number
+        
+        # Adjust for Aces if hand value exceeds 21
+        while value > 21 and num_aces > 0:
+            value -= 10 # Change an Ace from 11 to 1
+            num_aces -= 1
+        return value
+
+    async def start_game(self, interaction: discord.Interaction):
+        """
+        Starts the Blackjack game: fetches cards, shuffles, deals initial hands,
+        and displays the initial state.
+        """
+        success = await self.fetch_card_data()
+        if not success or not self.deck:
+            await interaction.followup.send(
+                "Failed to start Blackjack game: Could not load card data.",
+                ephemeral=True
+            )
+            return
+
+        random.shuffle(self.deck) # Shuffle the deck
+
+        # Deal initial hands
+        self.player_hand = [self.deal_card(), self.deal_card()]
+        self.dealer_hand = [self.deal_card(), self.deal_card()]
+
+        player_hand_titles = [card["title"] for card in self.player_hand]
+        dealer_visible_card_title = self.dealer_hand[0]["title"]
+        
+        player_value = self.calculate_hand_value(self.player_hand)
+
+        game_display = (
+            f"**Blackjack Game Started!**\n\n"
+            f"**{self.player.display_name}'s Hand:** {', '.join(player_hand_titles)} (Value: {player_value})\n"
+            f"**Dealer's Hand:** {dealer_visible_card_title}, [Hidden Card]\n\n"
+            "What would you like to do? (Hit or Stand)"
+        )
+
+        # For now, just send the initial display. Future: add buttons for Hit/Stand
+        self.game_message = await interaction.channel.send(game_display)
+        active_blackjack_games[self.channel_id] = self # Store the game instance
 
 
 @serene_group.command(name="game", description="Start a fun game with Serene!")
@@ -1683,21 +1760,8 @@ async def game_command(interaction: discord.Interaction, game_type: str):
         
         blackjack_game = BlackjackGame(interaction.channel.id, interaction.user)
         
-        success = await blackjack_game.fetch_card_data()
-
-        if success:
-            active_blackjack_games[interaction.channel.id] = blackjack_game
-            await interaction.followup.send(
-                f"Blackjack game started for {blackjack_game.player.display_name}! Cards loaded successfully.",
-                ephemeral=False # Make this visible to everyone
-            )
-            # Future: Add game start logic here (deal cards, show initial hands, etc.)
-        else:
-            await interaction.followup.send(
-                "Failed to load Blackjack card data. Please try again later.",
-                ephemeral=True
-            )
-            return
+        # Call the new start_game method for Blackjack
+        await blackjack_game.start_game(interaction)
 
     elif game_type == "texas_hold_em": # Placeholder for Texas Hold 'em
         await interaction.followup.send(
