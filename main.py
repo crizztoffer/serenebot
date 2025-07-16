@@ -170,7 +170,7 @@ class CategoryValueSelect(discord.ui.Select):
                 # Send the initial Daily Double message using followup.send
                 await interaction.followup.send(
                     f"**DAILY DOUBLE!** {game.player.display_name}, you found the Daily Double!\n"
-                    f"Your current score is **${game.score if game.score >= 0 else f'-${abs(game.score)}'}**." # Format negative score
+                    f"Your current score is **${game.score if game.score >= 0 else f'-{abs(game.score)}'}**." # Format negative score
                 )
 
                 max_wager = max(2000, game.score) if game.score >= 0 else 2000
@@ -298,21 +298,24 @@ class CategoryValueSelect(discord.ui.Select):
                 if is_correct:
                     game.score += game.current_wager # Use wager for score
                     await interaction.followup.send(
-                        f"✅ Correct, {game.player.display_name}! Your score is now **${game.score if game.score >= 0 else f'-${abs(game.score)}'}**." # Format negative score
+                        f"✅ Correct, {game.player.display_name}! Your score is now **${game.score if game.score >= 0 else f'-{abs(game.score)}'}**." # Format negative score
                     )
                 else:
                     game.score -= game.current_wager # Use wager for score
-                    # Modified: Include the determined prefix in the incorrect answer message
+                    # MODIFIED: Removed spoiler tags, added quotes, and ensured full answer is bold/underlined
+                    full_correct_answer = f'"{determined_prefix} {question_data["answer"]}"'.strip()
                     await interaction.followup.send(
                         f"❌ Incorrect, {game.player.display_name}! The correct answer was: "
-                        f"**__\"{determined_prefix}\"__** ||{question_data['answer']}||. Your score is now **${game.score if game.score >= 0 else f'-${abs(game.score)}'}**." # Format negative score
+                        f"**__{full_correct_answer}__**. Your score is now **${game.score if game.score >= 0 else f'-{abs(game.score)}'}**." # Format negative score
                     )
 
             except asyncio.TimeoutError:
                 game.score -= game.current_wager # Deduct wager for timeout
+                # MODIFIED: Removed score from message, removed spoiler tags, added quotes, and ensured full answer is bold/underlined
+                full_correct_answer = f'"{determined_prefix} {question_data["answer"]}"'.strip()
                 await interaction.followup.send(
                     f"⏰ Time's up, {game.player.display_name}! You didn't answer in time for '${question_data['value']}' question. The correct answer was: "
-                    f"**__\"{determined_prefix}\"__** ||{question_data['answer']}||." # Removed score from message
+                    f"**__{full_correct_answer}__**."
                 )
             except Exception as e:
                 print(f"Error waiting for answer: {e}")
@@ -327,7 +330,7 @@ class CategoryValueSelect(discord.ui.Select):
 
                 # Send a new message and update game.board_message to point to it
                 game.board_message = await interaction.channel.send(
-                    content=f"**{game.player.display_name}**'s Score: **${game.score if game.score >= 0 else f'-${abs(game.score)}'}**\n\n" # Format negative score
+                    content=f"**{game.player.display_name}**'s Score: **${game.score if game.score >= 0 else f'-{abs(game.score)}'}**\n\n" # Format negative score
                             "Select a category and value from the dropdowns below!",
                     view=new_jeopardy_view
                 )
@@ -1137,8 +1140,9 @@ async def serene_game_command(interaction: discord.Interaction, game_type: str):
             jeopardy_view = JeopardyGameView(jeopardy_game)
             jeopardy_view.add_board_components()
             
+            # MODIFIED: Formatted score for negative values on initial board message
             game_message = await interaction.channel.send(
-                content=f"**{jeopardy_game.player.display_name}**'s Score: **${jeopardy_game.score if jeopardy_game.score >= 0 else f'-${abs(jeopardy_game.score)}'}**\n\n" # Format negative score
+                content=f"**{jeopardy_game.player.display_name}**'s Score: **${jeopardy_game.score if jeopardy_game.score >= 0 else f'-${abs(jeopardy_game.score)}'}**\n\n"
                         "Select a category and value from the dropdowns below!",
                 view=jeopardy_view
             )
