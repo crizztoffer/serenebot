@@ -1026,7 +1026,7 @@ async def add_user_to_db_if_not_exists(guild_id: int, user_name: str, discord_id
     except aiomysql.Error as e:
         print(f"Database operation failed for user {user_name} (ID: {discord_id}): MySQL Error: {e}")
     except Exception as e:
-        print(f"Database operation failed for user {user_name} (ID: {discord_id}): An unexpected error occurred: {e}")
+        print(f"Database operation failed for user {discord_id}): An unexpected error occurred: {e}")
     finally:
         if conn:
             conn.close()
@@ -1566,50 +1566,82 @@ class BlackjackGame:
     def __init__(self, channel_id: int, player: discord.User):
         self.channel_id = channel_id
         self.player = player
-        self.deck = []  # Stores the full deck of cards
+        self.deck = self._create_standard_deck() # Initialize deck locally
         self.player_hand = []
         self.dealer_hand = []
         self.game_message = None # To store the message containing the game UI
         self.game_data_url = "https://serenekeks.com/serene_bot_games.php"
 
-    async def fetch_card_data(self) -> bool:
+    def _create_standard_deck(self) -> list[dict]:
         """
-        Fetches card data from the backend.
-        Returns True if data is successfully fetched, False otherwise.
+        Generates a standard 52-card deck with titles, numbers, and codes.
         """
-        try:
-            params = {"cards": "true"}
-            encoded_params = urllib.parse.urlencode(params)
-            full_url = f"{self.game_data_url}?{encoded_params}"
+        suits = ['S', 'D', 'C', 'H'] # Spades, Diamonds, Clubs, Hearts
+        ranks = {
+            'A': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9,
+            '0': 10, 'J': 10, 'Q': 10, 'K': 10
+        }
+        rank_titles = {
+            'A': 'Ace', '2': 'Two', '3': 'Three', '4': 'Four', '5': 'Five',
+            '6': 'Six', '7': 'Seven', '8': 'Eight', '9': 'Nine', '0': 'Ten',
+            'J': 'Jack', 'Q': 'Queen', 'K': 'King'
+        }
+        suit_titles = {
+            'S': 'Spades', 'D': 'Diamonds', 'C': 'Clubs', 'H': 'Hearts'
+        }
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(full_url) as response:
-                    if response.status == 200:
-                        card_data = await response.json()
-                        # Expecting card_data to be a direct list of dictionaries
-                        if isinstance(card_data, list):
-                            self.deck = card_data
-                            print(f"Card data fetched for Blackjack game in channel {self.channel_id}. Deck size: {len(self.deck)}")
-                            return True
-                        else:
-                            print("Error: Fetched data is not a list of cards as expected.")
-                            return False
-                    else:
-                        print(f"Error fetching card data: HTTP Status {response.status}")
-                        return False
-        except Exception as e:
-            print(f"Error loading card data: {e}")
-            return False
+        deck = []
+        for suit_code in suits:
+            for rank_code, num_value in ranks.items():
+                title = f"{rank_titles[rank_code]} of {suit_titles[suit_code]}"
+                card_code = f"{rank_code}{suit_code}"
+                deck.append({
+                    "title": title,
+                    "cardNumber": num_value,
+                    "code": card_code
+                })
+        return deck
+
+    # Removed fetch_card_data as it's no longer needed
+    # async def fetch_card_data(self) -> bool:
+    #     """
+    #     Fetches card data from the backend.
+    #     Returns True if data is successfully fetched, False otherwise.
+    #     """
+    #     try:
+    #         params = {"cards": "true"}
+    #         encoded_params = urllib.parse.urlencode(params)
+    #         full_url = f"{self.game_data_url}?{encoded_params}"
+
+    #         async with aiohttp.ClientSession() as session:
+    #             async with session.get(full_url) as response:
+    #                 if response.status == 200:
+    #                     card_data = await response.json()
+    #                     # Expecting card_data to be a direct list of dictionaries
+    #                     if isinstance(card_data, list):
+    #                         self.deck = card_data
+    #                         print(f"Card data fetched for Blackjack game in channel {self.channel_id}. Deck size: {len(self.deck)}")
+    #                         return True
+    #                     else:
+    #                         print("Error: Fetched data is not a list of cards as expected.")
+    #                         return False
+    #                 else:
+    #                     print(f"Error fetching card data: HTTP Status {response.status}")
+    #                     return False
+    #     except Exception as e:
+    #         print(f"Error loading card data: {e}")
+    #         return False
 
     def deal_card(self) -> dict:
         """
         Deals a random card from the deck. Removes the card from the deck.
-        Returns the dealt card (dict with 'title' and 'cardNumber').
+        Returns the dealt card (dict with 'title', 'cardNumber', and 'code').
         """
         if not self.deck:
             # Handle case where deck is empty (e.g., reshuffle or end game)
             print("Warning: Deck is empty, cannot deal more cards.")
-            return {"title": "No Card", "cardNumber": 0, "image": ""} # Return a dummy card with empty image
+            # Return a dummy card with empty image and code for graceful failure
+            return {"title": "No Card", "cardNumber": 0, "code": "NO_CARD"} 
         
         card = random.choice(self.deck)
         self.deck.remove(card) # Remove the dealt card from the deck
@@ -1640,18 +1672,11 @@ class BlackjackGame:
 
     async def start_game(self, interaction: discord.Interaction):
         """
-        Starts the Blackjack game: fetches cards, shuffles, deals initial hands,
-        and displays the initial state using an embed with card images directly in fields.
+        Starts the Blackjack game: shuffles, deals initial hands,
+        and displays the initial state using an embed with combined card images.
         """
-        success = await self.fetch_card_data()
-        if not success or not self.deck:
-            await interaction.followup.send(
-                "Failed to start Blackjack game: Could not load card data.",
-                ephemeral=True
-            )
-            return
-
-        random.shuffle(self.deck) # Shuffle the deck
+        # Deck is already created in __init__, just shuffle it
+        random.shuffle(self.deck) 
 
         # Deal initial hands
         self.player_hand = [self.deal_card(), self.deal_card()]
@@ -1660,19 +1685,13 @@ class BlackjackGame:
         player_value = self.calculate_hand_value(self.player_hand)
         dealer_visible_value = self.calculate_hand_value([self.dealer_hand[0]])
 
-        # Create the string for player's hand including titles and images
-        player_hand_display = ""
-        for card in self.player_hand:
-            player_hand_display += f"{card['title']}\n"
-            if "image" in card and card["image"]:
-                player_hand_display += f"{card['image']}\n" # Discord will embed this URL as an image
-        
-        # Create the string for dealer's hand (one visible, one hidden)
-        dealer_hand_display = f"{self.dealer_hand[0]['title']}\n"
-        if "image" in self.dealer_hand[0] and self.dealer_hand[0]["image"]:
-            dealer_hand_display += f"{self.dealer_hand[0]['image']}\n"
-        dealer_hand_display += "[Hidden Card]"
+        # Construct the combo string for the player's hand images
+        player_card_codes = [card['code'] for card in self.player_hand if 'code' in card]
+        player_combo_url = f"{self.game_data_url}?combo={','.join(player_card_codes)}" if player_card_codes else ""
 
+        # Construct the combo string for the dealer's visible card + a hidden card image
+        dealer_card_codes = [self.dealer_hand[0]['code'], 'back'] if 'code' in self.dealer_hand[0] else ['back']
+        dealer_combo_url = f"{self.game_data_url}?combo={','.join(dealer_card_codes)}" if dealer_card_codes else ""
 
         # Create an embed for the game display
         embed = discord.Embed(
@@ -1681,19 +1700,27 @@ class BlackjackGame:
             color=discord.Color.dark_green()
         )
 
-        # Add player's hand field with both cards and their images
+        # Add player's hand details (titles and value)
         embed.add_field(
             name=f"{self.player.display_name}'s Hand (Value: {player_value})",
-            value=player_hand_display,
+            value=f"{', '.join([card['title'] for card in self.player_hand])}",
             inline=False
         )
 
-        # Add dealer's hand field (with one card visible, one hidden)
+        # Add dealer's hand details (visible card title and value + hidden card)
         embed.add_field(
             name=f"Dealer's Hand (Value: {dealer_visible_value} + ?)",
-            value=dealer_hand_display,
+            value=f"{self.dealer_hand[0]['title']}, [Hidden Card]",
             inline=False
         )
+
+        # Set the main image of the embed to the combined player hand image
+        if player_combo_url:
+            embed.set_image(url=player_combo_url)
+        
+        # Set the thumbnail of the embed to the combined dealer hand image (visible + back)
+        if dealer_combo_url:
+            embed.set_thumbnail(url=dealer_combo_url)
         
         embed.set_footer(text="What would you like to do? (Hit or Stand)")
 
