@@ -901,7 +901,7 @@ class TicTacToeView(discord.ui.View):
             if self._check_winner():
                 winner = self.players[self.current_player].display_name
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner} wins!** 🎉",
+                    content=f"🎉 **{winner} wins!** �",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
