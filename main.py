@@ -930,7 +930,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** �",
+                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -1568,8 +1568,9 @@ class BlackjackGameView(discord.ui.View):
         self.game = game # Reference to the BlackjackGame instance
         self.message = None # To store the message containing the game UI
 
-        self.add_item(discord.ui.Button(label="Hit", style=discord.ButtonStyle.green, custom_id="blackjack_hit"))
-        self.add_item(discord.ui.Button(label="Stay", style=discord.ButtonStyle.red, custom_id="blackjack_stay"))
+        # Buttons are now added via decorators below, so remove explicit add_item calls here
+        # self.add_item(discord.ui.Button(label="Hit", style=discord.ButtonStyle.green, custom_id="blackjack_hit"))
+        # self.add_item(discord.ui.Button(label="Stay", style=discord.ButtonStyle.red, custom_id="blackjack_stay"))
 
     async def _update_game_message(self, interaction: discord.Interaction, content: str = None, embed: discord.Embed = None):
         """Helper to update the main game message."""
