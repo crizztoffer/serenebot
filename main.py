@@ -930,7 +930,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** �",
+                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -1193,7 +1193,7 @@ def to_past_tense(verb):
     irregular_verbs = {
         "go": "went", "come": "came", "see": "saw", "say": "said", "make": "made",
         "take": "took", "know": "knew", "get": "got", "give": "gave", "find": "found",
-        "think": "thought", "tell": "told", "become": "became", "show": "showed",
+        "think": "thought", "told": "told", "become": "became", "show": "showed",
         "leave": "left", "feel": "felt", "put": "put", "bring": "brought", "begin": "began",
         "run": "ran", "eat": "ate", "sing": "sang", "drink": "drank", "swim": "swam",
         "break": "broke", "choose": "chose", "drive": "drove", "fall": "fell", "fly": "flew",
@@ -1699,36 +1699,36 @@ class BlackjackGameView(discord.ui.View):
 
     @discord.ui.button(label="Play Again", style=discord.ButtonStyle.blurple, custom_id="blackjack_play_again", disabled=True)
     async def play_again_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Handles the 'Play Again' button click by resetting and editing the current game message."""
+        """Handles the 'Play Again' button click by resetting the game and updating the current message."""
         if interaction.user.id != self.game.player.id:
             await interaction.response.send_message("This is not your Blackjack game!", ephemeral=True)
             return
 
         await interaction.response.defer() # Acknowledge the interaction
 
-        # Reset the existing game instance
+        # Reset the existing game instance's state
         self.game.reset_game()
         self.game.player_hand = [self.game.deal_card(), self.game.deal_card()]
         self.game.dealer_hand = [self.game.deal_card(), self.game.deal_card()]
 
-        # Create a NEW view for the reset game state
-        new_game_view = BlackjackGameView(game=self.game)
-        
-        # Create the initial embed for the new game
+        # Re-enable the Hit and Stay buttons for the new game
+        for item in self.children:
+            if item.custom_id in ["blackjack_hit", "blackjack_stay"]:
+                item.disabled = False
+            elif item.custom_id == "blackjack_play_again":
+                item.disabled = True # Disable play again until game ends
+
+        # Create the initial embed for the new game state
         initial_embed = self.game._create_game_embed()
 
-        # Edit the original message with the new game state and new view
+        # Edit the original message with the new game state and re-enabled buttons
         try:
-            await interaction.edit_original_response(embed=initial_embed, view=new_game_view)
-            
-            # Get the updated message object from the interaction and assign it to the new view
-            updated_message = await interaction.original_response()
-            new_game_view.message = updated_message
-            self.game.game_message = updated_message # Also update the game's message reference
-
-            # Update the active game dictionary to point to the new view
-            active_blackjack_games[self.game.channel_id] = new_game_view
-            
+            # Use 'self' as the view_to_use, since we are re-using this view instance
+            await interaction.edit_original_response(embed=initial_embed, view=self)
+            # The message reference (self.message and self.game.game_message) should already be correct
+            # as we are editing the message that this view is already associated with.
+            # No need to re-fetch original_response or update active_blackjack_games here,
+            # as the view instance itself remains the same.
         except discord.errors.NotFound:
             print("WARNING: Original game message not found during 'Play Again' edit.")
             await interaction.followup.send("Could not restart game. Please try `/serene game blackjack` again.", ephemeral=True)
@@ -1741,8 +1741,8 @@ class BlackjackGameView(discord.ui.View):
             if self.game.channel_id in active_blackjack_games:
                 del active_blackjack_games[self.game.channel_id]
         
-        # Stop the OLD view (this instance of BlackjackGameView)
-        self.stop()
+        # Do NOT call self.stop() here, as the view needs to remain active for the new game.
+        # The timeout will handle inactivity.
 
 
 class BlackjackGame:
