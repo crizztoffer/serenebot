@@ -930,7 +930,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** �",
+                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -1724,6 +1724,7 @@ class BlackjackGameView(discord.ui.View):
         
         # Create and start a new Blackjack game
         new_blackjack_game = BlackjackGame(interaction.channel.id, interaction.user)
+        # Pass the interaction object to start_game so it can use followup.send
         await new_blackjack_game.start_game(interaction)
 
         # Stop the old view (this instance)
@@ -1897,7 +1898,13 @@ class BlackjackGame:
         initial_embed = self._create_game_embed()
 
         # Send the message and store its reference in both game and view
-        self.game_message = await interaction.channel.send(embed=initial_embed, view=game_view)
+        # Use interaction.followup.send() if the interaction has been deferred
+        # Otherwise, use interaction.channel.send()
+        if interaction.response.is_done():
+            self.game_message = await interaction.followup.send(embed=initial_embed, view=game_view)
+        else:
+            self.game_message = await interaction.channel.send(embed=initial_embed, view=game_view)
+        
         game_view.message = self.game_message # Store message in the view for updates
         
         active_blackjack_games[self.channel_id] = game_view # Store the view instance, not the game itself
@@ -1985,11 +1992,13 @@ async def game_command(interaction: discord.Interaction, game_type: str):
             )
             return
         
+        # This initial defer is for the "Setting up Blackjack game..." message.
+        # The actual game message will be sent by start_game using interaction.followup.send()
         await interaction.followup.send("Setting up Blackjack game...", ephemeral=True)
         
         blackjack_game = BlackjackGame(interaction.channel.id, interaction.user)
         
-        # Call the new start_game method for Blackjack
+        # Call the new start_game method for Blackjack, passing the interaction
         await blackjack_game.start_game(interaction)
 
     elif game_type == "texas_hold_em": # Placeholder for Texas Hold 'em
