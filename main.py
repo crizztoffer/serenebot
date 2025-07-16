@@ -1208,7 +1208,7 @@ async def story_command(interaction: discord.Interaction):
         - "took a cock so big that they [verb_past_tense]"
         - "put their thing down, flipped it, and reversed it so perfectly, that they [verb_past_tense]"
         - "waffle-spanked a vagrant so hard that they [verb_past_tense]"
-        - "kissed Crizz P. so fast that he [verb_past_tense]"
+        - "kissed Crizz P."
         "spun around so fast that they [verb_past_tense]"
         "vomitted so loudly that they [verb_past_tense]"
         "sand-blastd out a power-shart so strong, that they [verb_past_tense]"
@@ -1252,7 +1252,7 @@ async def story_command(interaction: discord.Interaction):
             print("Error: GEMINI_API_KEY environment variable not set. Gemini API calls will fail.")
             # Fallback to default words if API key is not set
             nouns = ["creature", "forest", "adventure"]
-            verbs_infinitive = ["walk", "discover"]
+            verbs_infinfinitive = ["walk", "discover"]
         
         # Only attempt API call if API key is available
         if api_key:
