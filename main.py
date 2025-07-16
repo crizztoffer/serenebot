@@ -940,7 +940,7 @@ class TicTacToeView(discord.ui.View):
             except Exception as e:
                 print(f"WARNING: An error occurred editing board message on timeout: {e}")
         
-        # Changed self.game.channel_id to self.game.channel_id
+        # Changed self.game.channel.id to self.game.channel_id
         if self.game.channel_id in active_tictactoe_games:
             del active_tictactoe_games[self.game.channel_id]
         print(f"Tic-Tac-Toe game in channel {self.game.channel_id} timed out.")
@@ -1102,6 +1102,48 @@ async def hail_command(interaction: discord.Interaction):
 
     text_to_send = "hail serene"  # Predefined text for this command
     param_name = "hail"
+
+    # Prepare parameters for the PHP backend
+    params = {
+        param_name: text_to_send,
+        "player": player_name
+    }
+    encoded_params = urllib.parse.urlencode(params, quote_via=urllib.parse.quote_plus)
+    full_url = f"{php_backend_url}?{encoded_params}"
+
+    try:
+        # Make an asynchronous HTTP GET request
+        async with aiohttp.ClientSession() as session:
+            async with session.get(full_url) as response:
+                if response.status == 200:
+                    php_response_text = await response.text()
+                    await interaction.followup.send(php_response_text)
+                else:
+                    await interaction.followup.send(
+                        f"Serene backend returned an error: HTTP Status {response.status}"
+                    )
+    except aiohttp.ClientError as e:
+        await interaction.followup.send(
+            f"Could not connect to the Serene backend. Error: {e}"
+        )
+    except Exception as e:
+        await interaction.followup.send(
+            f"An unexpected error occurred: {e}"
+        )
+
+@serene_group.command(name="roast", description="Get roasted by Serene!")
+async def roast_command(interaction: discord.Interaction):
+    """
+    Handles the /serene roast slash command.
+    Sends a predefined "roast me" message to the backend with a 'roast' parameter.
+    """
+    await interaction.response.defer() # Acknowledge the interaction
+
+    php_backend_url = "https://serenekeks.com/serene_bot.php"
+    player_name = interaction.user.display_name
+
+    text_to_send = "roast me"  # Predefined text for this command
+    param_name = "roast"  # Use 'roast' as the parameter name
 
     # Prepare parameters for the PHP backend
     params = {
