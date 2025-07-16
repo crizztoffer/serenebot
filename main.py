@@ -151,7 +151,7 @@ class CategoryValueSelect(discord.ui.Select):
                     # Keep game.board_message as is if deletion fails due to permissions,
                     # as it might still be visible but uneditable.
                 except Exception as delete_e:
-                    print(f"WARNING: An unexpected error occurred during original board message deletion: {delete_e}")
+                    print(f"WARNING: An unexpected error occurred during original board message deletion: {delete_message}: {delete_e}")
                     game.board_message = None # Assume it's gone or broken
             
             # --- Determine the correct prefix using Gemini ---
@@ -746,7 +746,7 @@ class TicTacToeButton(discord.ui.Button):
         elif view._check_draw():
             await update_user_kekchipz(interaction.guild.id, interaction.user.id, 25) # Human player gets kekchipz for a draw
             await interaction.edit_original_response(
-                content="It's a **draw!** 🤝",
+                content="It's a **draw!** �",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -836,8 +836,8 @@ class TicTacToeView(discord.ui.View):
         for i in range(3):
             if all(board[i][j] == player for j in range(3)): return True # Row
             if all(board[j][i] == player for j in range(3)): return True # Column
-        if all(board[i][i] == player for i in range(3)): return True # Diagonal \
-        if all(board[i][2-i] == player for i in range(3)): return True # Diagonal /
+            if all(board[k][k] == player for k in range(3)): return True # Diagonal \
+            if all(board[k][2-k] == player for k in range(3)): return True # Diagonal /
         return False
 
     def _check_winner(self) -> bool:
@@ -1560,6 +1560,8 @@ async def story_command(interaction: discord.Interaction):
 @app_commands.choices(game_type=[
     app_commands.Choice(name="Tic-Tac-Toe", value="tic_tac_toe"),
     app_commands.Choice(name="Jeopardy", value="jeopardy"),
+    app_commands.Choice(name="Blackjack", value="blackjack"), # Added Blackjack
+    app_commands.Choice(name="Texas Hold 'em", value="texas_hold_em"), # Added Texas Hold 'em
 ])
 @app_commands.describe(game_type="The type of game to play.")
 async def game_command(interaction: discord.Interaction, game_type: str):
@@ -1628,6 +1630,16 @@ async def game_command(interaction: discord.Interaction, game_type: str):
                 ephemeral=True
             )
             return
+    elif game_type == "blackjack": # Placeholder for Blackjack
+        await interaction.followup.send(
+            "Blackjack is not yet implemented. Stay tuned!",
+            ephemeral=True
+        )
+    elif game_type == "texas_hold_em": # Placeholder for Texas Hold 'em
+        await interaction.followup.send(
+            "Texas Hold 'em is not yet implemented. Stay tuned!",
+            ephemeral=True
+        )
     else:
         await interaction.followup.send(
             f"Game type '{game_type}' is not yet implemented. Stay tuned!",
@@ -1641,3 +1653,4 @@ if BOT_TOKEN is None:
     print("Error: BOT_TOKEN environment variable not set.")
 else:
     bot.run(BOT_TOKEN)
+    
