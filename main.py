@@ -1629,6 +1629,7 @@ class BlackjackGameView(discord.ui.View):
             self._end_game_buttons() # Modify the current view to show Play Again/Quit
             final_embed = self.game._create_game_embed(reveal_dealer=True, result_message="BUST! Serene wins.")
             await self._update_game_message(interaction, final_embed, view_to_use=self) # Pass interaction
+            await update_user_kekchipz(interaction.guild.id, interaction.user.id, -50) # Player loses kekchipz on bust
         else:
             # Player can hit again - send new message with updated embed
             new_embed = self.game._create_game_embed()
@@ -1652,9 +1653,7 @@ class BlackjackGameView(discord.ui.View):
         while serene_value < 17:
             self.game.dealer_hand.append(self.game.deal_card())
             serene_value = self.game.calculate_hand_value(self.game.dealer_hand)
-            # Update display with new Serene card, revealing it
-            temp_embed = self.game._create_game_embed(reveal_dealer=True)
-            await self._update_game_message(interaction, temp_embed, view_to_use=self) # Pass interaction
+            # Removed the repeated _update_game_message call here
             await asyncio.sleep(1) # Small delay for dramatic effect
 
         result_message = ""
@@ -1672,6 +1671,9 @@ class BlackjackGameView(discord.ui.View):
         else:
             result_message = "It's a push (tie)!"
             kekchipz_change = 0 # No change for a push
+
+        # Apply kekchipz change
+        await update_user_kekchipz(interaction.guild.id, interaction.user.id, kekchipz_change)
 
         final_embed = self.game._create_game_embed(reveal_dealer=True, result_message=result_message)
         self._end_game_buttons() # Modify the current view to show Play Again/Quit
