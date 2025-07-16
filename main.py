@@ -134,7 +134,7 @@ class CategoryValueSelect(discord.ui.Select):
             question_data["guessed"] = True
             game.current_question = question_data # Set current question in game state
 
-            print(f"DEBUG: Selected question_data: {question_data}") # ADDED DEBUG PRINT
+            # Removed debug print: print(f"DEBUG: Selected question_data: {question_data}")
 
             # Clear the view's internal selection state (not strictly necessary but good practice)
             view._selected_category = None
@@ -325,17 +325,17 @@ class CategoryValueSelect(discord.ui.Select):
                         for user_word in user_words:
                             for sig_correct_word in significant_correct_words:
                                 similarity = calculate_word_similarity(user_word, sig_correct_word)
-                                if similarity >= 70.0: # Threshold for similarity
+                                if similarity >= 70.0:
                                     is_correct = True
-                                    break # Found a sufficiently similar significant word
+                                    break
                             if is_correct:
-                                break # No need to check further user words if a match is found
+                                break
                 
                 # Compare the processed user answer with the correct answer
                 if is_correct:
                     game.score += game.current_wager # Use wager for score
                     await interaction.followup.send(
-                        f"✅ Correct, {game.player.display_name}! Your score is now **{'-' if game.score < 0 else ''}${abs(game.score)}**." # Format negative score
+                        f"✅ Correct, {game.player.display_name}! Your score is now **{'-' if game.score < 0 else ''}${abs(game.score)}**."
                     )
                 else:
                     game.score -= game.current_wager # Use wager for score
@@ -343,7 +343,7 @@ class CategoryValueSelect(discord.ui.Select):
                     full_correct_answer = f'"{determined_prefix} {question_data["answer"]}"'.strip()
                     await interaction.followup.send(
                         f"❌ Incorrect, {game.player.display_name}! The correct answer was: "
-                        f"**__{full_correct_answer}__**. Your score is now **{'-' if game.score < 0 else ''}${abs(game.score)}**." # Format negative score
+                        f"**__{full_correct_answer}__**. Your score is now **{'-' if game.score < 0 else ''}${abs(game.score)}**."
                     )
 
             except asyncio.TimeoutError:
@@ -926,7 +926,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
+                    content=f"🎉 **{winner_player.display_name} wins!** �",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
