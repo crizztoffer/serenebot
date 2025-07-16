@@ -3,6 +3,7 @@ import random
 import urllib.parse
 import json
 import asyncio
+import re # Import the re module for regular expressions
 
 import discord
 from discord.ext import commands
@@ -188,7 +189,7 @@ class CategoryValueSelect(discord.ui.Select):
                 print("GEMINI_API_KEY not set. Cannot determine dynamic prefixes. Using default.")
 
             # --- Daily Double Wager Logic ---
-            is_daily_double = question_data.get("double_jeopardy", False)
+            is_daily_double = question_data.get("daily_double", False) # Corrected key name
             
             # Initialize game.current_wager with the question's value by default
             game.current_wager = question_data['value'] 
@@ -277,15 +278,17 @@ class CategoryValueSelect(discord.ui.Select):
                 processed_user_answer = user_raw_answer[len(determined_prefix.lower()):].strip()
                 
                 correct_answer_lower = question_data['answer'].lower()
-                
+                # MODIFIED: Remove text in parentheses from the correct answer for comparison
+                correct_answer_for_comparison = re.sub(r'\s*\(.*\)', '', correct_answer_lower).strip()
+
                 is_correct = False
                 # Check for exact match first
-                if processed_user_answer == correct_answer_lower:
+                if processed_user_answer == correct_answer_for_comparison:
                     is_correct = True
                 else:
                     # Use Levenshtein similarity for fuzzy matching
                     # We'll compare the entire processed user answer against the correct answer
-                    similarity = calculate_word_similarity(processed_user_answer, correct_answer_lower)
+                    similarity = calculate_word_similarity(processed_user_answer, correct_answer_for_comparison)
                     # A threshold of 80% is a good starting point for acceptable "fuzziness"
                     if similarity >= 80.0:
                         is_correct = True
@@ -335,6 +338,9 @@ class CategoryValueSelect(discord.ui.Select):
                     if game.channel.id in active_jeopardy_games:
                         del active_jeopardy_games[game.channel.id]
                     return # Exit if Final Jeopardy is reached, as no more dropdowns are needed
+
+                # MODIFIED: Stop the current view before sending a new one
+                view.stop()
 
                 # Send a NEW message with the dropdowns for the next phase, or the current phase if not completed
                 new_jeopardy_view = JeopardyGameView(game)
@@ -1050,7 +1056,7 @@ async def serene_story_command(interaction: discord.Interaction):
         - "put their thing down, flipped it, and reversed it so perfectly, that they [verb_past_tense]"
         - "waffle-spanked a vagrant so hard that they [verb_past_tense]"
         - "kissed Crizz P. so fast that he [verb_past_tense]"
-        - "spun around so fast that they [verb_past_tense]"
+        "spun around so fast that they [verb_past_tense]"
         "vomitted so loudly that they [verb_past_tense]"
         "sand-blastd out a power-shart so strong, that they [verb_past_tense]"
         "slipped off the roof above—and with a thump—they [verb_past_tense]"
