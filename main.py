@@ -136,7 +136,7 @@ class CategoryValueSelect(discord.ui.Select):
             view._selected_category = None
             view._selected_value = None
 
-            # MODIFIED: Delete the original board message that contained the dropdowns
+            # Delete the original board message that contained the dropdowns
             if game.board_message:
                 try:
                     await game.board_message.delete()
@@ -198,7 +198,7 @@ class CategoryValueSelect(discord.ui.Select):
                 # Send the initial Daily Double message using followup.send
                 await interaction.followup.send(
                     f"**DAILY DOUBLE!** {game.player.display_name}, you found the Daily Double!\n"
-                    f"Your current score is **{'' if game.score >= 0 else '-'}${abs(game.score)}**." # Format negative score
+                    f"Your current score is **{'-' if game.score < 0 else ''}${abs(game.score)}**." # Format negative score
                 )
 
                 max_wager = max(2000, game.score) if game.score >= 0 else 2000
@@ -262,55 +262,88 @@ class CategoryValueSelect(discord.ui.Select):
                 )
 
 
-            # Define a check for the user's response, now strictly using the determined_prefix
+            # Define a list of valid Jeopardy prefixes for user answers
+            valid_user_prefixes = (
+                "what is", "who is", "what are", "who are",
+                "what was", "who was", "what were", "who were"
+            )
+
             def check_answer(m: discord.Message):
-                # Check if message is in the same channel, from the same user, and starts with the determined prefix (case-insensitive)
-                return (m.channel.id == interaction.channel.id and
-                        m.author.id == interaction.user.id and
-                        m.content.lower().startswith(determined_prefix.lower()))
+                # Check if message is in the same channel, from the same user
+                if not (m.channel.id == interaction.channel.id and m.author.id == interaction.user.id):
+                    return False
+                
+                # Check if the message content starts with any of the valid Jeopardy prefixes
+                msg_content_lower = m.content.lower()
+                for prefix in valid_user_prefixes:
+                    if msg_content_lower.startswith(prefix):
+                        return True
+                return False
 
             try:
                 # Wait for the user's response for a limited time (e.g., 30 seconds)
                 user_answer_msg = await bot.wait_for('message', check=check_answer, timeout=30.0)
                 user_raw_answer = user_answer_msg.content.lower()
 
-                # Strip the determined prefix from the user's answer for comparison
-                processed_user_answer = user_raw_answer[len(determined_prefix.lower()):].strip()
+                # Determine which prefix was used and strip it
+                matched_prefix_len = 0
+                for prefix in valid_user_prefixes:
+                    if user_raw_answer.startswith(prefix):
+                        matched_prefix_len = len(prefix)
+                        break # Take the first match (order in tuple matters if there are overlaps, but for these prefixes, it's fine)
                 
-                correct_answer_lower = question_data['answer'].lower()
-                # MODIFIED: Remove text in parentheses from the correct answer for comparison
-                correct_answer_for_comparison = re.sub(r'\s*\(.*\)', '', correct_answer_lower).strip()
+                processed_user_answer = user_raw_answer[matched_prefix_len:].strip()
+                
+                correct_answer_raw_lower = question_data['answer'].lower()
+                # Remove text in parentheses from the correct answer for direct comparison
+                correct_answer_for_comparison = re.sub(r'\s*\(.*\)', '', correct_answer_raw_lower).strip()
 
                 is_correct = False
-                # Check for exact match first
+                # Check for exact match first (after stripping prefix and parentheses from correct answer)
                 if processed_user_answer == correct_answer_for_comparison:
                     is_correct = True
                 else:
-                    # Use Levenshtein similarity for fuzzy matching
-                    # We'll compare the entire processed user answer against the correct answer
-                    similarity = calculate_word_similarity(processed_user_answer, correct_answer_for_comparison)
-                    # A threshold of 80% is a good starting point for acceptable "fuzziness"
-                    if similarity >= 80.0:
-                        is_correct = True
+                    # Tokenize answers and question for word-by-word comparison
+                    # Remove punctuation from words before tokenizing
+                    user_words = set(re.findall(r'\b\w+\b', processed_user_answer))
+                    correct_words_full = set(re.findall(r'\b\w+\b', correct_answer_for_comparison))
+                    question_words = set(re.findall(r'\b\w+\b', question_data['question'].lower()))
 
+                    # Filter correct words: keep only those NOT in the question
+                    # This creates a list of 'significant' words from the correct answer
+                    significant_correct_words = [word for word in correct_words_full if word not in question_words]
+
+                    # If the user's answer is a single word and it's an exact match for a significant correct word
+                    if len(user_words) == 1 and list(user_words)[0] in significant_correct_words:
+                        is_correct = True
+                    else:
+                        # Perform fuzzy matching for each user word against significant correct words
+                        for user_word in user_words:
+                            for sig_correct_word in significant_correct_words:
+                                similarity = calculate_word_similarity(user_word, sig_correct_word)
+                                if similarity >= 70.0: # Threshold for similarity
+                                    is_correct = True
+                                    break # Found a sufficiently similar significant word
+                            if is_correct:
+                                break # No need to check further user words if a match is found
+                
                 # Compare the processed user answer with the correct answer
                 if is_correct:
                     game.score += game.current_wager # Use wager for score
                     await interaction.followup.send(
-                        f"✅ Correct, {game.player.display_name}! Your score is now **{'' if game.score >= 0 else '-'}${abs(game.score)}**." # Format negative score
+                        f"✅ Correct, {game.player.display_name}! Your score is now **{'-' if game.score < 0 else ''}${abs(game.score)}**." # Format negative score
                     )
                 else:
                     game.score -= game.current_wager # Use wager for score
-                    # MODIFIED: Removed spoiler tags, added quotes, and ensured full answer is bold/underlined
+                    # Removed spoiler tags, added quotes, and ensured full answer is bold/underlined
                     full_correct_answer = f'"{determined_prefix} {question_data["answer"]}"'.strip()
                     await interaction.followup.send(
                         f"❌ Incorrect, {game.player.display_name}! The correct answer was: "
-                        f"**__{full_correct_answer}__**. Your score is now **{'' if game.score >= 0 else '-'}${abs(game.score)}**." # Format negative score
+                        f"**__{full_correct_answer}__**. Your score is now **{'-' if game.score < 0 else ''}${abs(game.score)}**." # Format negative score
                     )
 
             except asyncio.TimeoutError:
-                game.score -= game.current_wager # Deduct wager for timeout
-                # MODIFIED: Removed score from message, removed spoiler tags, added quotes, and ensured full answer is bold/underlined
+                # No score change for timeout
                 full_correct_answer = f'"{determined_prefix} {question_data["answer"]}"'.strip()
                 await interaction.followup.send(
                     f"⏰ Time's up, {game.player.display_name}! You didn't answer in time for '${question_data['value']}' question. The correct answer was: "
@@ -339,7 +372,7 @@ class CategoryValueSelect(discord.ui.Select):
                         del active_jeopardy_games[game.channel.id]
                     return # Exit if Final Jeopardy is reached, as no more dropdowns are needed
 
-                # MODIFIED: Stop the current view before sending a new one
+                # Stop the current view before sending a new one
                 view.stop()
 
                 # Send a NEW message with the dropdowns for the next phase, or the current phase if not completed
@@ -349,10 +382,10 @@ class CategoryValueSelect(discord.ui.Select):
                 # Determine the content for the new board message based on the game phase
                 board_message_content = ""
                 if game.game_phase == "NORMAL_JEOPARDY":
-                    board_message_content = f"**{game.player.display_name}**'s Score: **{'' if game.score >= 0 else '-'}${abs(game.score)}**\n\n" \
+                    board_message_content = f"**{game.player.display_name}**'s Score: **{'-' if game.score < 0 else ''}${abs(game.score)}**\n\n" \
                                             "Select a category and value from the dropdowns below!"
                 elif game.game_phase == "DOUBLE_JEOPARDY":
-                    board_message_content = f"**{game.player.display_name}**'s Score: **{'' if game.score >= 0 else '-'}${abs(game.score)}**\n\n" \
+                    board_message_content = f"**{game.player.display_name}**'s Score: **{'-' if game.score < 0 else ''}${abs(game.score)}**\n\n" \
                                             "**Double Jeopardy!** Select a category and value from the dropdowns below!"
                 
                 if board_message_content: # Only send if there's content (i.e., not Final Jeopardy yet)
@@ -427,14 +460,14 @@ class JeopardyGameView(discord.ui.View):
         """Called when the view times out due to inactivity."""
         if self.game.board_message:
             try:
-                # MODIFIED: Added try-except for NotFound error
+                # Added try-except for NotFound error
                 await self.game.board_message.edit(content="Jeopardy game timed out due to inactivity.", view=None)
             except discord.errors.NotFound:
                 print("WARNING: Board message not found during timeout, likely already deleted.")
             except Exception as e:
                 print(f"WARNING: An error occurred editing board message on timeout: {e}")
         
-        # MODIFIED: Changed self.game.channel.id to self.game.channel_id
+        # Changed self.game.channel.id to self.game.channel_id
         if self.game.channel_id in active_jeopardy_games:
             # Clean up the game state
             del active_jeopardy_games[self.game.channel_id]
@@ -788,7 +821,7 @@ class TicTacToeView(discord.ui.View):
             except Exception as e:
                 print(f"WARNING: An error occurred editing board message on timeout: {e}")
         
-        # MODIFIED: Changed self.game.channel.id to self.game.channel_id
+        # Changed self.game.channel_id to self.game.channel_id
         if self.game.channel_id in active_tictactoe_games:
             del active_tictactoe_games[self.game.channel_id]
         print(f"Tic-Tac-Toe game in channel {self.game.channel_id} timed out.")
@@ -1219,9 +1252,9 @@ async def serene_game_command(interaction: discord.Interaction, game_type: str):
             jeopardy_view = JeopardyGameView(jeopardy_game)
             jeopardy_view.add_board_components()
             
-            # MODIFIED: Formatted score for negative values on initial board message
+            # Formatted score for negative values on initial board message
             game_message = await interaction.channel.send(
-                content=f"**{jeopardy_game.player.display_name}**'s Score: **{'' if jeopardy_game.score >= 0 else '-'}${abs(jeopardy_game.score)}**\n\n"
+                content=f"**{jeopardy_game.player.display_name}**'s Score: **{'-' if jeopardy_game.score < 0 else ''}${abs(jeopardy_game.score)}**\n\n"
                         "Select a category and value from the dropdowns below!",
                 view=jeopardy_view
             )
