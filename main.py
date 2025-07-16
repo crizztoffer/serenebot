@@ -1641,7 +1641,7 @@ class BlackjackGame:
     async def start_game(self, interaction: discord.Interaction):
         """
         Starts the Blackjack game: fetches cards, shuffles, deals initial hands,
-        and displays the initial state using an embed with a card thumbnail.
+        and displays the initial state using an embed with card images directly in fields.
         """
         success = await self.fetch_card_data()
         if not success or not self.deck:
@@ -1656,12 +1656,23 @@ class BlackjackGame:
         # Deal initial hands
         self.player_hand = [self.deal_card(), self.deal_card()]
         self.dealer_hand = [self.deal_card(), self.deal_card()]
-
-        player_hand_titles = [card["title"] for card in self.player_hand]
-        dealer_visible_card_title = self.dealer_hand[0]["title"]
         
         player_value = self.calculate_hand_value(self.player_hand)
         dealer_visible_value = self.calculate_hand_value([self.dealer_hand[0]])
+
+        # Create the string for player's hand including titles and images
+        player_hand_display = ""
+        for card in self.player_hand:
+            player_hand_display += f"{card['title']}\n"
+            if "image" in card and card["image"]:
+                player_hand_display += f"{card['image']}\n" # Discord will embed this URL as an image
+        
+        # Create the string for dealer's hand (one visible, one hidden)
+        dealer_hand_display = f"{self.dealer_hand[0]['title']}\n"
+        if "image" in self.dealer_hand[0] and self.dealer_hand[0]["image"]:
+            dealer_hand_display += f"{self.dealer_hand[0]['image']}\n"
+        dealer_hand_display += "[Hidden Card]"
+
 
         # Create an embed for the game display
         embed = discord.Embed(
@@ -1670,23 +1681,19 @@ class BlackjackGame:
             color=discord.Color.dark_green()
         )
 
-        # Add player's hand field
+        # Add player's hand field with both cards and their images
         embed.add_field(
             name=f"{self.player.display_name}'s Hand (Value: {player_value})",
-            value=f"{', '.join(player_hand_titles)}",
+            value=player_hand_display,
             inline=False
         )
 
-        # Add dealer's hand field (with one card hidden)
+        # Add dealer's hand field (with one card visible, one hidden)
         embed.add_field(
             name=f"Dealer's Hand (Value: {dealer_visible_value} + ?)",
-            value=f"{dealer_visible_card_title}, [Hidden Card]",
+            value=dealer_hand_display,
             inline=False
         )
-
-        # Set a thumbnail for the embed using the image of the player's first card
-        if self.player_hand and "image" in self.player_hand[0] and self.player_hand[0]["image"]:
-            embed.set_thumbnail(url=self.player_hand[0]["image"])
         
         embed.set_footer(text="What would you like to do? (Hit or Stand)")
 
