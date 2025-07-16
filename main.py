@@ -584,7 +584,7 @@ class JeopardyGameView(discord.ui.View):
 
     async def on_timeout(self):
         """Called when the view times out due to inactivity."""
-        if self.game.board_message:
+        if self.message:
             try:
                 # Added try-except for NotFound error
                 await self.game.board_message.edit(content="Jeopardy game timed out due to inactivity.", view=None)
@@ -930,7 +930,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
+                    content=f"🎉 **{winner_player.display_name} wins!** �",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -1720,10 +1720,15 @@ class BlackjackGameView(discord.ui.View):
         # Edit the original message with the new game state and new view
         try:
             await interaction.edit_original_response(embed=initial_embed, view=new_game_view)
+            
+            # Get the updated message object from the interaction and assign it to the new view
+            updated_message = await interaction.original_response()
+            new_game_view.message = updated_message
+            self.game.game_message = updated_message # Also update the game's message reference
+
             # Update the active game dictionary to point to the new view
             active_blackjack_games[self.game.channel_id] = new_game_view
-            # The new view's message reference should be set to the edited message
-            new_game_view.message = self.message # self.message is the original message that was edited
+            
         except discord.errors.NotFound:
             print("WARNING: Original game message not found during 'Play Again' edit.")
             await interaction.followup.send("Could not restart game. Please try `/serene game blackjack` again.", ephemeral=True)
