@@ -25,6 +25,7 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 active_tictactoe_games = {}
 active_jeopardy_games = {} # Re-introducing this for the new Jeopardy game
 active_blackjack_games = {} # New storage for Blackjack games
+active_texasholdem_games = {} # New storage for Texas Hold 'em games
 
 # --- Helper for fuzzy matching (MODIFIED to use Levenshtein distance) ---
 def levenshtein_distance(s1: str, s2: str) -> int:
@@ -652,7 +653,7 @@ class NewJeopardyGame:
                             full_data["final_jeopardy"]["category"] = full_data["final_jeopardy"].get("category", "Final Jeopardy")
 
                         self.normal_jeopardy_data = {"normal_jeopardy": full_data.get("normal_jeopardy", [])}
-                        self.double_jeopardy_data = {"double_jeopardy": full_data.get("double_jeopardy", [])}
+                        self.double_jeopardy_data = {"double_data": full_data.get("double_jeopardy", [])} # Fixed typo here
                         self.final_jeopardy_data = {"final_jeopardy": full_data.get("final_jeopardy", {})}
                         
                         print(f"Jeopardy data fetched and parsed for channel {self.channel_id}")
@@ -1926,6 +1927,322 @@ class BlackjackGame:
         active_blackjack_games[self.channel_id] = game_view # Store the view instance, not the game itself
 
 
+# --- New Texas Hold 'em Game Classes ---
+
+class TexasHoldEmGameView(discord.ui.View):
+    """
+    The Discord UI View that holds the interactive Texas Hold 'em game buttons.
+    """
+    def __init__(self, game: 'TexasHoldEmGame'):
+        super().__init__(timeout=300) # Game times out after 5 minutes of inactivity
+        self.game = game # Reference to the TexasHoldEmGame instance
+        self.message = None # To store the message containing the game UI
+        self._add_initial_buttons()
+
+    def _add_initial_buttons(self):
+        """Adds the initial buttons for the game."""
+        self.add_item(discord.ui.Button(label="Deal Flop", style=discord.ButtonStyle.primary, custom_id="holdem_flop"))
+        self.add_item(discord.ui.Button(label="Deal Turn", style=discord.ButtonStyle.primary, custom_id="holdem_turn", disabled=True))
+        self.add_item(discord.ui.Button(label="Deal River", style=discord.ButtonStyle.primary, custom_id="holdem_river", disabled=True))
+        self.add_item(discord.ui.Button(label="Showdown", style=discord.ButtonStyle.red, custom_id="holdem_showdown", disabled=True))
+        self.add_item(discord.ui.Button(label="Play Again", style=discord.ButtonStyle.blurple, custom_id="holdem_play_again", disabled=True))
+
+    async def _update_game_message(self, interaction: discord.Interaction, embed: discord.Embed, view_to_use: discord.ui.View = None):
+        """Helper to update the main game message by editing the original response."""
+        try:
+            await interaction.edit_original_response(embed=embed, view=view_to_use)
+        except discord.errors.NotFound:
+            print("WARNING: Original interaction message not found during edit, likely already deleted or inaccessible.")
+        except Exception as e:
+            print(f"WARNING: An error occurred editing original interaction response: {e}")
+
+    def _enable_next_phase_button(self, current_phase: str):
+        """Enables the button for the next phase of the game."""
+        for item in self.children:
+            if isinstance(item, discord.ui.Button):
+                item.disabled = True # Disable all buttons by default
+                if current_phase == "pre_flop" and item.custom_id == "holdem_flop":
+                    item.disabled = False
+                elif current_phase == "flop" and item.custom_id == "holdem_turn":
+                    item.disabled = False
+                elif current_phase == "turn" and item.custom_id == "holdem_river":
+                    item.disabled = False
+                elif current_phase == "river" and item.custom_id == "holdem_showdown":
+                    item.disabled = False
+                elif current_phase == "showdown" and item.custom_id == "holdem_play_again":
+                    item.disabled = False
+
+    def _end_game_buttons(self):
+        """Disables all game progression buttons and enables 'Play Again'."""
+        for item in self.children:
+            if isinstance(item, discord.ui.Button):
+                item.disabled = True
+                if item.custom_id == "holdem_play_again":
+                    item.disabled = False
+        return self
+
+    async def on_timeout(self):
+        """Called when the view times out due to inactivity."""
+        if self.message:
+            try:
+                for item in self.children:
+                    item.disabled = True
+                if not any(item.custom_id == "holdem_play_again" for item in self.children):
+                    self.add_item(discord.ui.Button(label="Play Again", style=discord.ButtonStyle.blurple, custom_id="holdem_play_again"))
+                for item in self.children:
+                    if item.custom_id == "holdem_play_again":
+                        item.disabled = False
+                        break
+                await self.message.edit(content="Texas Hold 'em game timed out due to inactivity. Click 'Play Again' to start a new game.", view=self, embed=self.message.embed)
+            except discord.errors.NotFound:
+                print("WARNING: Game message not found during timeout, likely already deleted.")
+            except Exception as e:
+                print(f"WARNING: An error occurred editing game message on timeout: {e}")
+        if self.game.channel_id in active_texasholdem_games:
+            pass # Keep for Play Again functionality
+        print(f"Texas Hold 'em game in channel {self.game.channel_id} timed out.")
+
+    @discord.ui.button(label="Deal Flop", style=discord.ButtonStyle.primary, custom_id="holdem_flop")
+    async def deal_flop_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.game.player.id:
+            await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
+            return
+        await interaction.response.defer()
+        self.game.deal_flop()
+        new_embed = self.game._create_game_embed()
+        self._enable_next_phase_button("flop")
+        await self._update_game_message(interaction, new_embed, view_to_use=self)
+
+    @discord.ui.button(label="Deal Turn", style=discord.ButtonStyle.primary, custom_id="holdem_turn", disabled=True)
+    async def deal_turn_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.game.player.id:
+            await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
+            return
+        await interaction.response.defer()
+        self.game.deal_turn()
+        new_embed = self.game._create_game_embed()
+        self._enable_next_phase_button("turn")
+        await self._update_game_message(interaction, new_embed, view_to_use=self)
+
+    @discord.ui.button(label="Deal River", style=discord.ButtonStyle.primary, custom_id="holdem_river", disabled=True)
+    async def deal_river_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.game.player.id:
+            await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
+            return
+        await interaction.response.defer()
+        self.game.deal_river()
+        new_embed = self.game._create_game_embed()
+        self._enable_next_phase_button("river")
+        await self._update_game_message(interaction, new_embed, view_to_use=self)
+
+    @discord.ui.button(label="Showdown", style=discord.ButtonStyle.red, custom_id="holdem_showdown", disabled=True)
+    async def showdown_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.game.player.id:
+            await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
+            return
+        await interaction.response.defer()
+        final_embed = self.game._create_game_embed(reveal_opponent=True)
+        self._end_game_buttons()
+        await self._update_game_message(interaction, final_embed, view_to_use=self)
+        del active_texasholdem_games[self.game.channel_id] # Game ends after showdown
+        self.stop() # Stop the view after game ends
+
+    @discord.ui.button(label="Play Again", style=discord.ButtonStyle.blurple, custom_id="holdem_play_again", disabled=True)
+    async def play_again_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.game.player.id:
+            await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
+            return
+        await interaction.response.defer()
+
+        self.game.reset_game()
+        self.game.deal_hole_cards()
+
+        for item in self.children:
+            if item.custom_id == "holdem_flop":
+                item.disabled = False
+            else:
+                item.disabled = True
+        
+        initial_embed = self.game._create_game_embed()
+        try:
+            await interaction.edit_original_response(embed=initial_embed, view=self)
+            active_texasholdem_games[self.game.channel_id] = self
+        except discord.errors.NotFound:
+            print("WARNING: Original game message not found during 'Play Again' edit for Hold 'em.")
+            await interaction.followup.send("Could not restart game. Please try `/serene game texas_hold_em` again.", ephemeral=True)
+            if self.game.channel_id in active_texasholdem_games:
+                del active_texasholdem_games[self.game.channel_id]
+        except Exception as e:
+            print(f"WARNING: An error occurred during 'Play Again' edit for Hold 'em: {e}")
+            await interaction.followup.send("An error occurred while restarting the game.", ephemeral=True)
+            if self.game.channel_id in active_texasholdem_games:
+                del active_texasholdem_games[self.game.channel_id]
+
+
+class TexasHoldEmGame:
+    """
+    Represents a single Texas Hold 'em game instance.
+    Manages game state, player hands, and community cards.
+    """
+    def __init__(self, channel_id: int, player: discord.User):
+        self.channel_id = channel_id
+        self.player = player # Human player
+        self.bot_player = bot.user # Serene bot as opponent
+        self.deck = self._create_standard_deck()
+        self.player_hole_cards = []
+        self.bot_hole_cards = []
+        self.community_cards = []
+        self.game_message = None # To store the message containing the game UI
+        self.game_data_url = "https://serenekeks.com/serene_bot_games.php"
+        self.game_phase = "pre_flop" # pre_flop, flop, turn, river, showdown
+
+    def _create_standard_deck(self) -> list[dict]:
+        """
+        Generates a standard 52-card deck with titles, numbers, and codes.
+        """
+        suits = ['S', 'D', 'C', 'H'] # Spades, Diamonds, Clubs, Hearts
+        ranks = {
+            'A': 1, '2': 3, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9,
+            'T': 10, 'J': 10, 'Q': 10, 'K': 10 # T for Ten (as per deckofcardsapi.com)
+        }
+        rank_titles = {
+            'A': 'Ace', '2': 'Two', '3': 'Three', '4': 'Four', '5': 'Five',
+            '6': 'Six', '7': 'Seven', '8': 'Eight', '9': 'Nine', 'T': 'Ten',
+            'J': 'Jack', 'Q': 'Queen', 'K': 'King'
+        }
+        suit_titles = {
+            'S': 'Spades', 'D': 'Diamonds', 'C': 'Clubs', 'H': 'Hearts'
+        }
+
+        deck = []
+        for suit_code in suits:
+            for rank_code, num_value in ranks.items():
+                title = f"{rank_titles[rank_code]} of {suit_titles[suit_code]}"
+                card_code = f"{rank_code}{suit_code}"
+                deck.append({
+                    "title": title,
+                    "cardNumber": num_value,
+                    "code": card_code
+                })
+        return deck
+
+    def deal_card(self) -> dict:
+        """
+        Deals a random card from the deck. Removes the card from the deck.
+        Returns the dealt card (dict with 'title', 'cardNumber', and 'code').
+        """
+        if not self.deck:
+            print("Warning: Deck is empty, cannot deal more cards.")
+            return {"title": "No Card", "cardNumber": 0, "code": "NO_CARD"} 
+        
+        card = random.choice(self.deck)
+        self.deck.remove(card)
+        return card
+
+    def deal_hole_cards(self):
+        """Deals 2 hole cards to each player."""
+        self.player_hole_cards = [self.deal_card(), self.deal_card()]
+        self.bot_hole_cards = [self.deal_card(), self.deal_card()]
+        self.game_phase = "pre_flop"
+
+    def deal_flop(self):
+        """Deals 3 community cards (the flop)."""
+        self.community_cards.extend([self.deal_card(), self.deal_card(), self.deal_card()])
+        self.game_phase = "flop"
+
+    def deal_turn(self):
+        """Deals 1 community card (the turn)."""
+        self.community_cards.append(self.deal_card())
+        self.game_phase = "turn"
+
+    def deal_river(self):
+        """Deals 1 community card (the river)."""
+        self.community_cards.append(self.deal_card())
+        self.game_phase = "river"
+
+    def reset_game(self):
+        """Resets the game state for a new round."""
+        self.deck = self._create_standard_deck()
+        random.shuffle(self.deck)
+        self.player_hole_cards = []
+        self.bot_hole_cards = []
+        self.community_cards = []
+        self.game_phase = "pre_flop" # Reset phase
+
+    def _create_game_embed(self, reveal_opponent: bool = False) -> discord.Embed:
+        """
+        Creates and returns a Discord Embed object representing the current game state.
+        :param reveal_opponent: If True, reveals the bot's hole cards.
+        :return: A discord.Embed object.
+        """
+        embed = discord.Embed(
+            title="Texas Hold 'em Poker",
+            description=f"**{self.player.display_name} vs. Serene**",
+            color=discord.Color.dark_blue()
+        )
+
+        # Player's Hand
+        player_card_codes = [card['code'] for card in self.player_hole_cards if 'code' in card]
+        player_hand_url = f"{self.game_data_url}?combo={','.join(player_card_codes)}" if player_card_codes else ""
+        embed.add_field(
+            name=f"{self.player.display_name}'s Hand",
+            value=f"{self.player_hole_cards[0]['title']}, {self.player_hole_cards[1]['title']}",
+            inline=False
+        )
+        if player_hand_url:
+            embed.set_image(url=player_hand_url) # Player's hand as main image
+
+        # Serene's Hand (hidden until showdown)
+        bot_card_codes = [card['code'] for card in self.bot_hole_cards if 'code' in card]
+        bot_hand_display_codes = bot_card_codes if reveal_opponent else ["back", "back"] # "back" for hidden card
+        bot_hand_url = f"{self.game_data_url}?combo={','.join(bot_hand_display_codes)}"
+        
+        bot_hand_titles = ', '.join([card['title'] for card in self.bot_hole_cards]) if reveal_opponent else "[Hidden Card], [Hidden Card]"
+        embed.add_field(
+            name=f"Serene's Hand",
+            value=bot_hand_titles,
+            inline=False
+        )
+        if bot_hand_url:
+            embed.set_thumbnail(url=bot_hand_url) # Serene's hand as thumbnail
+
+        # Community Cards
+        community_card_codes = [card['code'] for card in self.community_cards if 'code' in card]
+        community_cards_url = f"{self.game_data_url}?combo={','.join(community_card_codes)}" if community_card_codes else ""
+        
+        community_titles = ', '.join([card['title'] for card in self.community_cards]) if self.community_cards else "None yet."
+        embed.add_field(
+            name="Community Cards",
+            value=community_titles,
+            inline=False
+        )
+        if community_cards_url:
+            # Add a field for community cards with their image
+            embed.add_field(name="\u200b", value="\u200b", inline=False) # Empty field for spacing
+            embed.add_field(name="Board", value=f"[Community Cards Image]({community_cards_url})", inline=False) # Link to image
+
+
+        embed.set_footer(text=f"Game Phase: {self.game_phase.replace('_', ' ').title()}")
+        
+        return embed
+
+    async def start_game(self, interaction: discord.Interaction):
+        """
+        Starts the Texas Hold 'em game: shuffles, deals initial hands,
+        and displays the initial state.
+        """
+        random.shuffle(self.deck)
+        self.deal_hole_cards() # Deal initial 2 cards to player and bot
+
+        game_view = TexasHoldEmGameView(game=self)
+        initial_embed = self._create_game_embed()
+
+        self.game_message = await interaction.followup.send(embed=initial_embed, view=game_view)
+        game_view.message = self.game_message
+        active_texasholdem_games[self.channel_id] = game_view
+        game_view._enable_next_phase_button("pre_flop") # Enable the first button
+
+
 @serene_group.command(name="game", description="Start a fun game with Serene!")
 @app_commands.choices(game_type=[
     app_commands.Choice(name="Tic-Tac-Toe", value="tic_tac_toe"),
@@ -2017,11 +2334,21 @@ async def game_command(interaction: discord.Interaction, game_type: str):
         # Call the new start_game method for Blackjack, passing the interaction
         await blackjack_game.start_game(interaction)
 
-    elif game_type == "texas_hold_em": # Placeholder for Texas Hold 'em
-        await interaction.followup.send(
-            "Texas Hold 'em is not yet implemented. Stay tuned!",
-            ephemeral=True
-        )
+    elif game_type == "texas_hold_em": # Added Texas Hold 'em
+        if interaction.channel.id in active_texasholdem_games:
+            await interaction.followup.send(
+                "A Texas Hold 'em game is already active in this channel! Please finish it or wait.",
+                ephemeral=True
+            )
+            return
+        
+        await interaction.followup.send("Setting up Texas Hold 'em game...", ephemeral=True)
+        
+        holdem_game = TexasHoldEmGame(interaction.channel.id, interaction.user)
+        
+        # Call the new start_game method for Texas Hold 'em, passing the interaction
+        await holdem_game.start_game(interaction)
+
     else:
         await interaction.followup.send(
             f"Game type '{game_type}' is not yet implemented. Stay tuned!",
