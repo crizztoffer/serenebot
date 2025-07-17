@@ -740,7 +740,7 @@ class TicTacToeButton(discord.ui.Button):
                 await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
             await interaction.edit_original_response(
-                content=f"🎉 **{winner_player.display_name} wins!** 🎉",
+                content=f"🎉 **{winner_player.display_name} wins!** �",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -2062,7 +2062,7 @@ class TexasHoldEmGameView(discord.ui.View):
         initial_embed = self.game._create_game_embed()
         try:
             await interaction.edit_original_response(embed=initial_embed, view=self)
-            active_texasholdem_games[self.game.channel_id] = self
+            active_texasholdem_games[self.game.channel.id] = self
         except discord.errors.NotFound:
             print("WARNING: Original game message not found during 'Play Again' edit for Hold 'em.")
             await interaction.followup.send("Could not restart game. Please try `/serene game texas_hold_em` again.", ephemeral=True)
@@ -2175,29 +2175,6 @@ class TexasHoldEmGame:
             title="Texas Hold 'em Poker",
             description=f"**{self.player.display_name} vs. Serene**",
             color=discord.Color.dark_blue()
-        )
-
-        # Player's Hand textual representation
-        embed.add_field(
-            name=f"{self.player.display_name}'s Hand",
-            value=f"{self.player_hole_cards[0]['title']}, {self.player_hole_cards[1]['title']}",
-            inline=False
-        )
-
-        # Serene's Hand textual representation (hidden until showdown)
-        bot_hand_titles = ', '.join([card['title'] for card in self.bot_hole_cards]) if reveal_opponent else "[Hidden Card], [Hidden Card]"
-        embed.add_field(
-            name=f"Serene's Hand",
-            value=bot_hand_titles,
-            inline=False
-        )
-
-        # Community Cards textual representation
-        community_titles = ', '.join([card['title'] for card in self.community_cards]) if self.community_cards else "None yet."
-        embed.add_field(
-            name="Community Cards",
-            value=community_titles,
-            inline=False
         )
         
         # Prepare data for the combined image URL
