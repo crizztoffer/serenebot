@@ -2191,7 +2191,7 @@ class TexasHoldEmGame:
 
         # Construct the game state data as a dictionary
         game_state_data = {
-            "community": community_0card_codes,
+            "community": community_card_codes, # Corrected typo here
             "player": player_card_codes,
             "dealer": dealer_card_codes
         }
