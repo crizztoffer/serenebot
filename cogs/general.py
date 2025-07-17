@@ -7,19 +7,14 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 
-# Import helper functions from the main bot file
-from bot import to_past_tense
+# Import helper functions and the global serene_group from the main bot file
+from bot import to_past_tense, serene_group # Import serene_group here
 
 class General(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        # Retrieve the existing 'serene' group from the bot's command tree.
-        # It is defined and added in bot.py, so we just get a reference here.
-        self.serene_group = self.bot.tree.get_command('serene')
-        if not self.serene_group:
-            # This indicates a critical setup error in bot.py if this happens.
-            raise RuntimeError("The 'serene' command group was not found. Ensure it's defined in bot.py before loading cogs.")
 
+    # Commands that are NOT part of the /serene group
     @app_commands.command(name="ping", description="Responds with Pong!")
     async def ping(self, interaction: discord.Interaction):
         await interaction.response.send_message("Pong!", ephemeral=True)
@@ -34,9 +29,11 @@ class General(commands.Cog):
         except Exception as e:
             await interaction.followup.send(f"Failed to sync commands: {e}", ephemeral=True)
 
-    @self.serene_group.command(name="talk", description="Interact with the Serene bot backend.")
+    # Define the commands that *will be added* to the serene_group.
+    # These are now regular methods or app_commands.Command objects.
     @app_commands.describe(text_input="Your message or question for Serene.")
-    async def talk_command(self, interaction: discord.Interaction, text_input: str):
+    async def talk_command_impl(self, interaction: discord.Interaction, text_input: str):
+        """Implementation for the /serene talk command."""
         await interaction.response.defer()
 
         php_backend_url = "https://serenekeks.com/serene_bot.php"
@@ -83,13 +80,12 @@ class General(commands.Cog):
                 f"An unexpected error occurred: {e}"
             )
 
-    @self.serene_group.command(name="hail", description="Hail Serene!")
-    async def hail_command(self, interaction: discord.Interaction):
+    async def hail_command_impl(self, interaction: discord.Interaction):
+        """Implementation for the /serene hail command."""
         await interaction.response.defer()
 
         php_backend_url = "https://serenekeks.com/serene_bot.php"
         player_name = interaction.user.display_name
-
         text_to_send = "hail serene"
         param_name = "hail"
 
@@ -119,13 +115,12 @@ class General(commands.Cog):
                 f"An unexpected error occurred: {e}"
             )
 
-    @self.serene_group.command(name="roast", description="Get roasted by Serene!")
-    async def roast_command(self, interaction: discord.Interaction):
+    async def roast_command_impl(self, interaction: discord.Interaction):
+        """Implementation for the /serene roast command."""
         await interaction.response.defer()
 
         php_backend_url = "https://serenekeks.com/serene_bot.php"
         player_name = interaction.user.display_name
-
         text_to_send = "roast me"
         param_name = "roast"
 
@@ -155,15 +150,12 @@ class General(commands.Cog):
                 f"An unexpected error occurred: {e}"
             )
 
-    @self.serene_group.command(name="story", description="Generate a story with contextually appropriate nouns and verbs.")
-    async def story_command(self, interaction: discord.Interaction):
+    async def story_command_impl(self, interaction: discord.Interaction):
+        """Implementation for the /serene story command."""
         await interaction.response.defer()
 
         php_backend_url = "https://serenekeks.com/serene_bot_2.php"
         player_name = interaction.user.display_name
-
-        nouns = ["dragon", "wizard", "monster"]
-        verbs_infinitive = ["fly", "vanish"]
 
         php_story_structure = {
             "first": "There once was a ",
@@ -313,6 +305,13 @@ class General(commands.Cog):
         )
         await interaction.followup.send(display_message)
 
+
 async def setup(bot):
-    await bot.add_cog(General(bot))
+    cog = General(bot)
+    await bot.add_cog(cog)
+    # Explicitly add commands to the serene_group after the cog is loaded
+    serene_group.add_command(app_commands.Command(cog.talk_command_impl, name="talk", description="Talk to Serene."))
+    serene_group.add_command(app_commands.Command(cog.hail_command_impl, name="hail", description="All hail the goddess, Serene!"))
+    serene_group.add_command(app_commands.Command(cog.roast_command_impl, name="roast", description="Get roasted by Serene!"))
+    serene_group.add_command(app_commands.Command(cog.story_command_impl, name="story", description="Hear a burtated story from Serene."))
 
