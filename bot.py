@@ -6,7 +6,8 @@ from discord import app_commands
 import random
 import aiohttp
 import json
-import traceback
+import traceback # Import traceback for detailed error logging
+import sys       # Import sys for printing to stderr
 
 # --- Global Variables and Helper Functions (as implied by your cogs) ---
 
@@ -117,14 +118,16 @@ async def on_ready():
         await bot.load_extension("cogs.texasholdem")
         print("Loaded cogs.texasholdem")
     except Exception as e:
-        print(f"Error loading cogs: {e}")
+        print(f"Error loading cogs: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr) # Print full traceback for cog loading errors
 
     # Sync slash commands globally
     try:
         synced = await bot.tree.sync() # Sync globally
         print(f"Synced {len(synced)} commands globally.")
     except Exception as e:
-        print(f"Failed to sync commands: {e}")
+        print(f"Failed to sync commands: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr) # Print full traceback for sync errors
 
 # Run the bot
 # Replace 'YOUR_BOT_TOKEN' with your actual bot token from Discord Developer Portal
