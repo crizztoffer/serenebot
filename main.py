@@ -931,7 +931,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
+                    content=f"🎉 **{winner_player.display_name} wins!** �",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -2181,7 +2181,9 @@ class TexasHoldEmGame:
         # Prepare data for the combined image URL
         # Community cards codes
         community_card_codes = [card['code'] for card in self.community_cards if 'code' in card]
-        community_cards_param = ','.join(community_card_codes)
+        
+        # Only include the 'table' parameter if there are community cards
+        community_cards_param = f"&table={urllib.parse.quote_plus(','.join(community_card_codes))}" if community_card_codes else ""
 
         # Player's cards codes
         player_card_codes = [card['code'] for card in self.player_hole_cards if 'code' in card]
@@ -2204,12 +2206,11 @@ class TexasHoldEmGame:
         }
         players_json_param = json.dumps(players_data)
 
-        # URL-encode both parameters
-        encoded_community_cards = urllib.parse.quote_plus(community_cards_param)
+        # URL-encode the players JSON
         encoded_players_json = urllib.parse.quote_plus(players_json_param)
 
         # Construct the final image URL
-        full_game_image_url = f"{self.game_data_url}?table={encoded_community_cards}&players={encoded_players_json}"
+        full_game_image_url = f"{self.game_data_url}?players={encoded_players_json}{community_cards_param}"
         
         # Print the generated URL for debugging
         print(f"DEBUG: Generated Texas Hold 'em image URL: {full_game_image_url}")
