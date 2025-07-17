@@ -1835,38 +1835,46 @@ class BlackjackGame:
 
     async def _fetch_and_initialize_deck(self):
         """
-        Fetches card codes from the PHP backend and initializes the deck.
+        Fetches card codes from deckofcardsapi.com and initializes the deck.
         """
-        get_cards_url = f"{self.game_data_url}?getcards=true"
+        deck_api_url = 'https://deckofcardsapi.com/api/deck/new/draw/?count=52'
+        print(f"DEBUG: Fetching deck for Blackjack from {deck_api_url}")
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(get_cards_url) as response:
+                async with session.get(deck_api_url) as response:
                     if response.status == 200:
-                        card_codes = await response.json()
-                        if isinstance(card_codes, list) and all(isinstance(c, str) for c in card_codes):
-                            self.deck = self._build_deck_from_codes(card_codes)
-                            random.shuffle(self.deck) # Shuffle the fetched deck
-                            print(f"Deck initialized with {len(self.deck)} cards from API.")
-                            return True
+                        data = await response.json()
+                        
+                        if 'cards' in data and isinstance(data['cards'], list):
+                            card_codes = [str(card['code']) for card in data['cards'] if 'code' in card]
+                            if card_codes:
+                                self.deck = self._build_deck_from_codes(card_codes)
+                                random.shuffle(self.deck)
+                                print(f"DEBUG: Deck initialized with {len(self.deck)} cards from deckofcardsapi.com for Blackjack.")
+                                return True
+                            else:
+                                print(f"ERROR: No card codes found in deckofcardsapi.com response for Blackjack: {data}")
+                                self.deck = self._create_standard_deck_fallback()
+                                return False
                         else:
-                            print(f"Error: API response for getcards was not a list of strings: {card_codes}")
-                            self.deck = self._create_standard_deck_fallback() # Fallback to hardcoded deck
+                            print(f"ERROR: Invalid response structure from deckofcardsapi.com for Blackjack: Missing 'cards' key or not a list. Response: {data}")
+                            self.deck = self._create_standard_deck_fallback()
                             return False
                     else:
-                        print(f"Error fetching card codes from API: HTTP Status {response.status}")
-                        self.deck = self._create_standard_deck_fallback() # Fallback to hardcoded deck
+                        print(f"ERROR: Failed to fetch deck from deckofcardsapi.com for Blackjack: HTTP Status {response.status}. URL: {deck_api_url}")
+                        self.deck = self._create_standard_deck_fallback()
                         return False
         except aiohttp.ClientError as e:
-            print(f"Network error fetching card codes from API: {e}")
-            self.deck = self._create_standard_deck_fallback() # Fallback to hardcoded deck
+            print(f"ERROR: Network error fetching deck from deckofcardsapi.com for Blackjack: {e}. URL: {deck_api_url}")
+            self.deck = self._create_standard_deck_fallback()
             return False
         except json.JSONDecodeError as e:
-            print(f"JSON decode error fetching card codes from API: {e}")
-            self.deck = self._create_standard_deck_fallback() # Fallback to hardcoded deck
+            print(f"ERROR: JSON decode error fetching deck from deckofcardsapi.com for Blackjack: {e}. Response was: {await response.text()}")
+            self.deck = self._create_standard_deck_fallback()
             return False
         except Exception as e:
-            print(f"An unexpected error occurred fetching card codes: {e}")
-            self.deck = self._create_standard_deck_fallback() # Fallback to hardcoded deck
+            print(f"ERROR: An unexpected error occurred fetching deck for Blackjack: {e}. URL: {deck_api_url}")
+            self.deck = self._create_standard_deck_fallback()
             return False
 
     def _create_standard_deck_fallback(self) -> list[dict]:
@@ -1874,6 +1882,7 @@ class BlackjackGame:
         Generates a hardcoded standard 52-card deck as a fallback.
         This is the original logic.
         """
+        print("DEBUG: Using standard deck fallback for Blackjack.")
         suits = ['S', 'D', 'C', 'H'] # Spades, Diamonds, Clubs, Hearts
         ranks = {
             'A': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9,
@@ -2316,39 +2325,46 @@ class TexasHoldEmGame:
 
     async def _fetch_and_initialize_deck(self):
         """
-        Fetches card codes from the PHP backend and initializes the deck.
+        Fetches card codes from deckofcardsapi.com and initializes the deck.
         """
-        print("DEBUG: _fetch_and_initialize_deck called.")
-        get_cards_url = f"{self.game_data_url}?getcards=true"
+        deck_api_url = 'https://deckofcardsapi.com/api/deck/new/draw/?count=52'
+        print(f"DEBUG: Fetching deck for Texas Hold 'em from {deck_api_url}")
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(get_cards_url) as response:
+                async with session.get(deck_api_url) as response:
                     if response.status == 200:
-                        card_codes = await response.json()
-                        if isinstance(card_codes, list) and all(isinstance(c, str) for c in card_codes):
-                            self.deck = self._build_deck_from_codes(card_codes)
-                            random.shuffle(self.deck) # Shuffle the fetched deck
-                            print(f"DEBUG: Deck initialized with {len(self.deck)} cards from API.")
-                            return True
+                        data = await response.json()
+                        
+                        if 'cards' in data and isinstance(data['cards'], list):
+                            card_codes = [str(card['code']) for card in data['cards'] if 'code' in card]
+                            if card_codes:
+                                self.deck = self._build_deck_from_codes(card_codes)
+                                random.shuffle(self.deck)
+                                print(f"DEBUG: Deck initialized with {len(self.deck)} cards from deckofcardsapi.com for Texas Hold 'em.")
+                                return True
+                            else:
+                                print(f"ERROR: No card codes found in deckofcardsapi.com response for Texas Hold 'em: {data}")
+                                self.deck = self._create_standard_deck_fallback()
+                                return False
                         else:
-                            print(f"ERROR: API response for getcards was not a list of strings: {card_codes}")
-                            self.deck = self._create_standard_deck_fallback() # Fallback to hardcoded deck
+                            print(f"ERROR: Invalid response structure from deckofcardsapi.com for Texas Hold 'em: Missing 'cards' key or not a list. Response: {data}")
+                            self.deck = self._create_standard_deck_fallback()
                             return False
                     else:
-                        print(f"ERROR: Fetching card codes from API failed: HTTP Status {response.status}. URL: {get_cards_url}")
-                        self.deck = self._create_standard_deck_fallback() # Fallback to hardcoded deck
+                        print(f"ERROR: Failed to fetch deck from deckofcardsapi.com for Texas Hold 'em: HTTP Status {response.status}. URL: {deck_api_url}")
+                        self.deck = self._create_standard_deck_fallback()
                         return False
         except aiohttp.ClientError as e:
-            print(f"ERROR: Network error fetching card codes from API: {e}. URL: {get_cards_url}")
-            self.deck = self._create_standard_deck_fallback() # Fallback to hardcoded deck
+            print(f"ERROR: Network error fetching deck from deckofcardsapi.com for Texas Hold 'em: {e}. URL: {deck_api_url}")
+            self.deck = self._create_standard_deck_fallback()
             return False
         except json.JSONDecodeError as e:
-            print(f"ERROR: JSON decode error fetching card codes from API: {e}. Response was: {await response.text()}")
-            self.deck = self._create_standard_deck_fallback() # Fallback to hardcoded deck
+            print(f"ERROR: JSON decode error fetching deck from deckofcardsapi.com for Texas Hold 'em: {e}. Response was: {await response.text()}")
+            self.deck = self._create_standard_deck_fallback()
             return False
         except Exception as e:
-            print(f"ERROR: An unexpected error occurred fetching card codes: {e}. URL: {get_cards_url}")
-            self.deck = self._create_standard_deck_fallback() # Fallback to hardcoded deck
+            print(f"ERROR: An unexpected error occurred fetching deck for Texas Hold 'em: {e}. URL: {deck_api_url}")
+            self.deck = self._create_standard_deck_fallback()
             return False
 
     def _create_standard_deck_fallback(self) -> list[dict]:
@@ -2356,7 +2372,7 @@ class TexasHoldEmGame:
         Generates a hardcoded standard 52-card deck as a fallback.
         This is the original logic.
         """
-        print("DEBUG: Using standard deck fallback.")
+        print("DEBUG: Using standard deck fallback for Texas Hold 'em.")
         suits = ['S', 'D', 'C', 'H'] # Spades, Diamonds, Clubs, Hearts
         ranks = {
             'A': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9,
