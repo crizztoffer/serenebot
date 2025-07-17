@@ -1,3 +1,7 @@
 discord.py
 aiohttp
 aiomysql
+Pillow 
+requests 
+svglib 
+reportlab
