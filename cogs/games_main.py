@@ -22,12 +22,12 @@ import cogs.texasholdem
 class GamesMain(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        # Retrieve the existing 'serene' group from the bot's command tree.
+        # It is defined and added in bot.py, so we just get a reference here.
         self.serene_group = self.bot.tree.get_command('serene')
         if not self.serene_group:
-            print("WARNING: 'serene' command group not found in GamesMain. This should be defined in bot.py.")
-            # Fallback (should not be hit if bot.py is correct)
-            self.serene_group = app_commands.Group(name="serene", description="Commands for Serene Bot.")
-            self.bot.tree.add_command(self.serene_group)
+            # This indicates a critical setup error in bot.py if this happens.
+            raise RuntimeError("The 'serene' command group was not found. Ensure it's defined in bot.py before loading cogs.")
 
     @self.serene_group.command(name="game", description="Start a fun game with Serene!")
     @app_commands.choices(game_type=[
