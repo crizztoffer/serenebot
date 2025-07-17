@@ -6,6 +6,7 @@ from discord import app_commands
 import random
 import aiohttp
 import json
+import traceback
 
 # --- Global Variables and Helper Functions (as implied by your cogs) ---
 
