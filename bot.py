@@ -2,12 +2,13 @@
 import os
 import discord
 from discord.ext import commands, tasks
-from discord import app_commands # Add this line for app_commands.Group
+from discord import app_commands
 import asyncio
 import aiomysql
 import json
 import re
-import time # Import time for cache busting in game cogs
+import time
+import traceback # Import the traceback module
 
 # Define intents
 intents = discord.Intents.default()
@@ -236,6 +237,7 @@ async def on_ready():
         print(f"Synced {len(synced)} slash commands.")
     except Exception as e:
         print(f"Failed to sync commands or load cogs: {e}")
+        traceback.print_exc() # Print the full traceback of the exception
     
     hourly_db_check.start()
     await bot.wait_until_ready()
