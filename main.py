@@ -1341,6 +1341,7 @@ async def hail_command(interaction: discord.Interaction):
             f"An unexpected error occurred: {e}"
         )
 
+
 @serene_group.command(name="roast", description="Get roasted by Serene!")
 async def roast_command(interaction: discord.Interaction):
     """
@@ -1937,15 +1938,7 @@ class TexasHoldEmGameView(discord.ui.View):
         super().__init__(timeout=300) # Game times out after 5 minutes of inactivity
         self.game = game # Reference to the TexasHoldEmGame instance
         self.message = None # To store the message containing the game UI
-        self._add_initial_buttons()
-
-    def _add_initial_buttons(self):
-        """Adds the initial buttons for the game."""
-        self.add_item(discord.ui.Button(label="Deal Flop", style=discord.ButtonStyle.primary, custom_id="holdem_flop"))
-        self.add_item(discord.ui.Button(label="Deal Turn", style=discord.ButtonStyle.primary, custom_id="holdem_turn", disabled=True))
-        self.add_item(discord.ui.Button(label="Deal River", style=discord.ButtonStyle.primary, custom_id="holdem_river", disabled=True))
-        self.add_item(discord.ui.Button(label="Showdown", style=discord.ButtonStyle.red, custom_id="holdem_showdown", disabled=True))
-        self.add_item(discord.ui.Button(label="Play Again", style=discord.ButtonStyle.blurple, custom_id="holdem_play_again", disabled=True))
+        # Buttons are now added via decorators below, so _add_initial_buttons() is removed.
 
     async def _update_game_message(self, interaction: discord.Interaction, embed: discord.Embed, view_to_use: discord.ui.View = None):
         """Helper to update the main game message by editing the original response."""
@@ -1987,7 +1980,10 @@ class TexasHoldEmGameView(discord.ui.View):
             try:
                 for item in self.children:
                     item.disabled = True
+                # Ensure Play Again button is present and enabled on timeout
                 if not any(item.custom_id == "holdem_play_again" for item in self.children):
+                    # This case should ideally not happen if Play Again is always part of the view
+                    # but adding defensively.
                     self.add_item(discord.ui.Button(label="Play Again", style=discord.ButtonStyle.blurple, custom_id="holdem_play_again"))
                 for item in self.children:
                     if item.custom_id == "holdem_play_again":
@@ -2002,7 +1998,7 @@ class TexasHoldEmGameView(discord.ui.View):
             pass # Keep for Play Again functionality
         print(f"Texas Hold 'em game in channel {self.game.channel_id} timed out.")
 
-    @discord.ui.button(label="Deal Flop", style=discord.ButtonStyle.primary, custom_id="holdem_flop")
+    @discord.ui.button(label="Deal Flop", style=discord.ButtonStyle.primary, custom_id="holdem_flop", row=0)
     async def deal_flop_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.game.player.id:
             await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
@@ -2013,7 +2009,7 @@ class TexasHoldEmGameView(discord.ui.View):
         self._enable_next_phase_button("flop")
         await self._update_game_message(interaction, new_embed, view_to_use=self)
 
-    @discord.ui.button(label="Deal Turn", style=discord.ButtonStyle.primary, custom_id="holdem_turn", disabled=True)
+    @discord.ui.button(label="Deal Turn", style=discord.ButtonStyle.primary, custom_id="holdem_turn", disabled=True, row=0)
     async def deal_turn_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.game.player.id:
             await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
@@ -2024,7 +2020,7 @@ class TexasHoldEmGameView(discord.ui.View):
         self._enable_next_phase_button("turn")
         await self._update_game_message(interaction, new_embed, view_to_use=self)
 
-    @discord.ui.button(label="Deal River", style=discord.ButtonStyle.primary, custom_id="holdem_river", disabled=True)
+    @discord.ui.button(label="Deal River", style=discord.ButtonStyle.primary, custom_id="holdem_river", disabled=True, row=0)
     async def deal_river_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.game.player.id:
             await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
@@ -2035,7 +2031,7 @@ class TexasHoldEmGameView(discord.ui.View):
         self._enable_next_phase_button("river")
         await self._update_game_message(interaction, new_embed, view_to_use=self)
 
-    @discord.ui.button(label="Showdown", style=discord.ButtonStyle.red, custom_id="holdem_showdown", disabled=True)
+    @discord.ui.button(label="Showdown", style=discord.ButtonStyle.red, custom_id="holdem_showdown", disabled=True, row=1) # Moved to row 1
     async def showdown_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.game.player.id:
             await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
@@ -2047,7 +2043,7 @@ class TexasHoldEmGameView(discord.ui.View):
         del active_texasholdem_games[self.game.channel_id] # Game ends after showdown
         self.stop() # Stop the view after game ends
 
-    @discord.ui.button(label="Play Again", style=discord.ButtonStyle.blurple, custom_id="holdem_play_again", disabled=True)
+    @discord.ui.button(label="Play Again", style=discord.ButtonStyle.blurple, custom_id="holdem_play_again", disabled=True, row=1) # Moved to row 1
     async def play_again_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.game.player.id:
             await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
@@ -2057,26 +2053,27 @@ class TexasHoldEmGameView(discord.ui.View):
         self.game.reset_game()
         self.game.deal_hole_cards()
 
+        # Reset button states for a new game
         for item in self.children:
             if item.custom_id == "holdem_flop":
                 item.disabled = False
-            else:
+            elif item.custom_id in ["holdem_turn", "holdem_river", "holdem_showdown", "holdem_play_again"]:
                 item.disabled = True
         
         initial_embed = self.game._create_game_embed()
         try:
             await interaction.edit_original_response(embed=initial_embed, view=self)
-            active_texasholdem_games[self.game.channel_id] = self
+            active_texasholdem_games[self.game.channel.id] = self
         except discord.errors.NotFound:
             print("WARNING: Original game message not found during 'Play Again' edit for Hold 'em.")
             await interaction.followup.send("Could not restart game. Please try `/serene game texas_hold_em` again.", ephemeral=True)
-            if self.game.channel_id in active_texasholdem_games:
-                del active_texasholdem_games[self.game.channel_id]
+            if self.game.channel.id in active_texasholdem_games:
+                del active_texasholdem_games[self.game.channel.id]
         except Exception as e:
             print(f"WARNING: An error occurred during 'Play Again' edit for Hold 'em: {e}")
             await interaction.followup.send("An error occurred while restarting the game.", ephemeral=True)
-            if self.game.channel_id in active_texasholdem_games:
-                del active_texasholdem_games[self.game.channel_id]
+            if self.game.channel.id in active_texasholdem_games:
+                del active_texasholdem_games[self.game.channel.id]
 
 
 class TexasHoldEmGame:
@@ -2102,7 +2099,7 @@ class TexasHoldEmGame:
         """
         suits = ['S', 'D', 'C', 'H'] # Spades, Diamonds, Clubs, Hearts
         ranks = {
-            'A': 1, '2': 3, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9,
+            'A': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9,
             'T': 10, 'J': 10, 'Q': 10, 'K': 10 # T for Ten (as per deckofcardsapi.com)
         }
         rank_titles = {
@@ -2180,47 +2177,46 @@ class TexasHoldEmGame:
             description=f"**{self.player.display_name} vs. Serene**",
             color=discord.Color.dark_blue()
         )
-
-        # Player's Hand
-        player_card_codes = [card['code'] for card in self.player_hole_cards if 'code' in card]
-        player_hand_url = f"{self.game_data_url}?combo={','.join(player_card_codes)}" if player_card_codes else ""
-        embed.add_field(
-            name=f"{self.player.display_name}'s Hand",
-            value=f"{self.player_hole_cards[0]['title']}, {self.player_hole_cards[1]['title']}",
-            inline=False
-        )
-        if player_hand_url:
-            embed.set_image(url=player_hand_url) # Player's hand as main image
-
-        # Serene's Hand (hidden until showdown)
-        bot_card_codes = [card['code'] for card in self.bot_hole_cards if 'code' in card]
-        bot_hand_display_codes = bot_card_codes if reveal_opponent else ["back", "back"] # "back" for hidden card
-        bot_hand_url = f"{self.game_data_url}?combo={','.join(bot_hand_display_codes)}"
         
-        bot_hand_titles = ', '.join([card['title'] for card in self.bot_hole_cards]) if reveal_opponent else "[Hidden Card], [Hidden Card]"
-        embed.add_field(
-            name=f"Serene's Hand",
-            value=bot_hand_titles,
-            inline=False
-        )
-        if bot_hand_url:
-            embed.set_thumbnail(url=bot_hand_url) # Serene's hand as thumbnail
-
-        # Community Cards
+        # Prepare data for the combined image URL
+        # Community cards codes
         community_card_codes = [card['code'] for card in self.community_cards if 'code' in card]
-        community_cards_url = f"{self.game_data_url}?combo={','.join(community_card_codes)}" if community_card_codes else ""
         
-        community_titles = ', '.join([card['title'] for card in self.community_cards]) if self.community_cards else "None yet."
-        embed.add_field(
-            name="Community Cards",
-            value=community_titles,
-            inline=False
-        )
-        if community_cards_url:
-            # Add a field for community cards with their image
-            embed.add_field(name="\u200b", value="\u200b", inline=False) # Empty field for spacing
-            embed.add_field(name="Board", value=f"[Community Cards Image]({community_cards_url})", inline=False) # Link to image
+        # Only include the 'table' parameter if there are community cards
+        community_cards_param = f"&table={urllib.parse.quote_plus(','.join(community_card_codes))}" if community_card_codes else ""
 
+        # Player's cards codes
+        player_card_codes = [card['code'] for card in self.player_hole_cards if 'code' in card]
+
+        # Serene's cards codes (hidden or revealed)
+        serene_display_card_codes = [card['code'] for card in self.bot_hole_cards if 'code' in card] if reveal_opponent else ["XX", "XX"]
+        
+        # Construct the players JSON structure for the PHP backend
+        players_data = {
+            "dealer": {
+                "id": "serene",
+                "cards": serene_display_card_codes
+            },
+            "players": [
+                {
+                    "id": str(self.player.id), # Use player ID for uniqueness
+                    "cards": player_card_codes
+                }
+            ]
+        }
+        players_json_param = json.dumps(players_data)
+
+        # URL-encode the players JSON
+        encoded_players_json = urllib.parse.quote_plus(players_json_param)
+
+        # Construct the final image URL
+        full_game_image_url = f"{self.game_data_url}?players={encoded_players_json}{community_cards_param}"
+        
+        # Print the generated URL for debugging
+        print(f"DEBUG: Generated Texas Hold 'em image URL: {full_game_image_url}")
+
+        # Set the main image of the embed to the combined image
+        embed.set_image(url=full_game_image_url)
 
         embed.set_footer(text=f"Game Phase: {self.game_phase.replace('_', ' ').title()}")
         
