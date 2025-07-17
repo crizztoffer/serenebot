@@ -748,7 +748,7 @@ class TicTacToeButton(discord.ui.Button):
         elif view._check_draw():
             await update_user_kekchipz(interaction.guild.id, interaction.user.id, 25) # Human player gets kekchipz for a draw
             await interaction.edit_original_response(
-                content="It's a **draw!** 🤝",
+                content="It's a **draw!** �",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -931,7 +931,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** �",
+                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -2178,31 +2178,31 @@ class TexasHoldEmGame:
             color=discord.Color.dark_blue()
         )
         
-        # Prepare data for the combined image URL
-        # Community cards codes
+        # Get card codes for all hands
         community_card_codes = [card['code'] for card in self.community_cards if 'code' in card]
-        
-        # Player's cards codes
         player_card_codes = [card['code'] for card in self.player_hole_cards if 'code' in card]
 
-        # Serene's cards codes (hidden or revealed)
-        # The PHP now handles 'XX' for face down, so we send actual codes and PHP will use faceDown=true for dealer.
-        # If reveal_opponent is True, we want to show Serene's cards, so we send their actual codes.
-        # If reveal_opponent is False, we still send actual codes, but PHP will render them face down.
-        serene_card_codes = [card['code'] for card in self.bot_hole_cards if 'code' in card]
-        
-        # Build the query parameters
-        params = {
-            "community": ','.join(community_card_codes),
-            "player": ','.join(player_card_codes),
-            "dealer": ','.join(serene_card_codes) # Send actual codes for dealer, PHP will handle face down
+        # Determine dealer's cards based on reveal_opponent flag
+        if reveal_opponent:
+            dealer_card_codes = [card['code'] for card in self.bot_hole_cards if 'code' in card]
+        else:
+            dealer_card_codes = ["XX", "XX"] # Send 'XX' for hidden cards
+
+        # Construct the game state data as a dictionary
+        game_state_data = {
+            "community": community_card_codes,
+            "player": player_card_codes,
+            "dealer": dealer_card_codes
         }
 
-        # URL-encode parameters
-        encoded_params = urllib.parse.urlencode(params)
+        # Serialize the dictionary to a JSON string
+        game_state_json = json.dumps(game_state_data)
 
-        # Construct the final image URL
-        full_game_image_url = f"{self.game_data_url}?{encoded_params}"
+        # URL-encode the JSON string
+        encoded_game_state = urllib.parse.quote_plus(game_state_json)
+
+        # Construct the final image URL with a single 'game_data' parameter
+        full_game_image_url = f"{self.game_data_url}?game_data={encoded_game_state}"
         
         # Print the generated URL for debugging
         print(f"DEBUG: Generated Texas Hold 'em image URL: {full_game_image_url}")
