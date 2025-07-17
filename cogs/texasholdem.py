@@ -262,7 +262,7 @@ class TexasHoldEm(commands.Cog):
                 deck.append({
                     "title": title,
                     "cardNumber": card_number,
-                    "code": code
+                    "code": card_code
                 })
             return deck
 
