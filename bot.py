@@ -8,7 +8,7 @@ import aiomysql
 import json
 import re
 import time
-import traceback # Import the traceback module
+import traceback
 
 # Define intents
 intents = discord.Intents.default()
