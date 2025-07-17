@@ -236,12 +236,9 @@ async def on_ready():
         # After all cogs are loaded, attempt to clear and then sync commands.
         # This is a robust way to handle CommandSignatureMismatch on startup.
         print("Attempting to clear existing global commands before syncing...")
-        # The TypeError indicates that bot.tree.clear_commands(guild=None) might be returning None
-        # and then await is called on None.
-        # Let's try clear_commands() without any arguments, which is the default for global.
-        # If that still fails, it suggests a deeper issue with the CommandTree itself.
-        await bot.tree.clear_commands() # Clear global commands (no arguments needed for global)
-        synced = await bot.tree.sync() # Sync global commands (no arguments needed for global)
+        # Reverting to guild=None as it is required.
+        await bot.tree.clear_commands(guild=None) # Clear global commands
+        synced = await bot.tree.sync(guild=None) # Sync global commands
         print(f"Cleared and Synced {len(synced)} slash commands globally.")
         
     except Exception as e:
