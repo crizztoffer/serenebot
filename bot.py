@@ -2,11 +2,12 @@
 import os
 import discord
 from discord.ext import commands, tasks
-from discord import app_commands # Add this line
+from discord import app_commands # Add this line for app_commands.Group
 import asyncio
 import aiomysql
 import json
 import re
+import time # Import time for cache busting in game cogs
 
 # Define intents
 intents = discord.Intents.default()
@@ -18,16 +19,12 @@ intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 # --- Global Game State Storage ---
-# These need to be accessible by all game cogs, so keep them global or pass them around.
-# Keeping them global for simplicity as they are shared state.
 active_tictactoe_games = {}
 active_jeopardy_games = {}
 active_blackjack_games = {}
 active_texasholdem_games = {}
 
 # --- Database Operations (Shared Utility Functions) ---
-# These functions are used by multiple game cogs, so they are kept in the main bot file
-# or could be moved to a separate `utils.py` file and imported.
 async def add_user_to_db_if_not_exists(guild_id: int, user_name: str, discord_id: int):
     """
     Checks if a user exists in the 'discord_users' table for a given guild.
@@ -211,7 +208,7 @@ def to_past_tense(verb):
         return verb + 'ed'
 
 # --- Consolidate commands under a single /serene command group ---
-# This group is defined once here and then commands are added to it by cogs.
+# This group is defined ONCE here and then commands are added to it by cogs.
 serene_group = app_commands.Group(name="serene", description="Commands for Serene Bot.")
 bot.tree.add_command(serene_group)
 
@@ -229,7 +226,7 @@ async def on_ready():
     try:
         # Load cogs here
         await bot.load_extension("cogs.general")
-        await bot.load_extension("cogs.games_main") # The main game command handler
+        await bot.load_extension("cogs.games_main")
         await bot.load_extension("cogs.tictactoe")
         await bot.load_extension("cogs.jeopardy")
         await bot.load_extension("cogs.blackjack")
@@ -325,3 +322,4 @@ if BOT_TOKEN is None:
     print("Error: BOT_TOKEN environment variable not set.")
 else:
     bot.run(BOT_TOKEN)
+
