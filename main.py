@@ -1113,7 +1113,7 @@ async def on_ready():
         print(f"Processing guild: {guild.name} (ID: {guild.id})")
         for member in guild.members:
             if not member.bot: # Only add actual users, not other bots
-                await add_user_to_db_if_not_exists(guild.id, member.display_name, member.id)
+                await add_user_to_db_if_not_exists(member.guild.id, member.display_name, member.id)
     print("Finished checking existing guild members.")
 
 
@@ -1710,7 +1710,7 @@ class BlackjackGameView(discord.ui.View):
         await interaction.response.defer() # Acknowledge the interaction
 
         # Reset the existing game instance's state
-        self.game.reset_game()
+        await self.game.reset_game() # Await reset_game as it now fetches from API
         self.game.player_hand = [self.game.deal_card(), self.game.deal_card()]
         self.game.dealer_hand = [self.game.deal_card(), self.game.deal_card()]
 
@@ -1756,25 +1756,105 @@ class BlackjackGame:
     def __init__(self, channel_id: int, player: discord.User):
         self.channel_id = channel_id
         self.player = player
-        self.deck = self._create_standard_deck() # Initialize deck locally
+        self.deck = [] # Initialize as empty, will be populated by _fetch_and_initialize_deck
         self.player_hand = []
         self.dealer_hand = [] # This will be Serene's hand
         self.game_message = None # To store the message containing the game UI
         self.game_data_url = "https://serenekeks.com/serene_bot_games.php"
         self.game_over = False # New flag to track if the game has ended
 
-    def _create_standard_deck(self) -> list[dict]:
+    def _build_deck_from_codes(self, card_codes: list[str]) -> list[dict]:
         """
-        Generates a standard 52-card deck with titles, numbers, and codes.
+        Builds a deck of card dictionaries from a list of card codes.
+        This is used after fetching codes from the API.
+        """
+        suits = {'S': 'Spades', 'D': 'Diamonds', 'C': 'Clubs', 'H': 'Hearts'}
+        ranks = {
+            'A': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9,
+            'T': 10, 'J': 10, 'Q': 10, 'K': 10 # Changed '0' to 'T' for Ten
+        }
+        rank_titles = {
+            'A': 'Ace', '2': 'Two', '3': 'Three', '4': 'Four', '5': 'Five',
+            '6': 'Six', '7': 'Seven', '8': 'Eight', '9': 'Nine', 'T': 'Ten',
+            'J': 'Jack', 'Q': 'Queen', 'K': 'King'
+        }
+
+        deck = []
+        for code in card_codes:
+            if len(code) == 2: # Standard two-character code (e.g., 'AC', 'KH')
+                rank_code = code[0]
+                suit_code = code[1]
+            elif len(code) == 3 and code[0] == '1' and code[1] == '0': # Handle '10C', '10S' etc.
+                rank_code = 'T' # Map '10' to 'T' for internal consistency
+                suit_code = code[2]
+            else:
+                print(f"WARNING: Unrecognized card code format: {code}. Skipping.")
+                continue
+
+            # Ensure rank_code and suit_code are valid before accessing dictionaries
+            if rank_code not in ranks or suit_code not in suits:
+                print(f"WARNING: Invalid rank or suit code in {code}. Skipping.")
+                continue
+
+            title = f"{rank_titles.get(rank_code, rank_code)} of {suits.get(suit_code, suit_code)}"
+            card_number = ranks.get(rank_code, 0) # Default to 0 if rank not found
+
+            deck.append({
+                "title": title,
+                "cardNumber": card_number,
+                "code": code # Use the original code from the API
+            })
+        return deck
+
+    async def _fetch_and_initialize_deck(self):
+        """
+        Fetches card codes from the PHP backend and initializes the deck.
+        """
+        get_cards_url = f"{self.game_data_url}?getcards=true"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(get_cards_url) as response:
+                    if response.status == 200:
+                        card_codes = await response.json()
+                        if isinstance(card_codes, list) and all(isinstance(c, str) for c in card_codes):
+                            self.deck = self._build_deck_from_codes(card_codes)
+                            random.shuffle(self.deck) # Shuffle the fetched deck
+                            print(f"Deck initialized with {len(self.deck)} cards from API.")
+                            return True
+                        else:
+                            print(f"Error: API response for getcards was not a list of strings: {card_codes}")
+                            self.deck = self._create_standard_deck_fallback() # Fallback to hardcoded deck
+                            return False
+                    else:
+                        print(f"Error fetching card codes from API: HTTP Status {response.status}")
+                        self.deck = self._create_standard_deck_fallback() # Fallback to hardcoded deck
+                        return False
+        except aiohttp.ClientError as e:
+            print(f"Network error fetching card codes from API: {e}")
+            self.deck = self._create_standard_deck_fallback() # Fallback to hardcoded deck
+            return False
+        except json.JSONDecodeError as e:
+            print(f"JSON decode error fetching card codes from API: {e}")
+            self.deck = self._create_standard_deck_fallback() # Fallback to hardcoded deck
+            return False
+        except Exception as e:
+            print(f"An unexpected error occurred fetching card codes: {e}")
+            self.deck = self._create_standard_deck_fallback() # Fallback to hardcoded deck
+            return False
+
+    def _create_standard_deck_fallback(self) -> list[dict]:
+        """
+        Generates a hardcoded standard 52-card deck as a fallback.
+        This is the original logic.
         """
         suits = ['S', 'D', 'C', 'H'] # Spades, Diamonds, Clubs, Hearts
         ranks = {
             'A': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9,
-            '0': 10, 'J': 10, 'Q': 10, 'K': 10
+            'T': 10, 'J': 10, 'Q': 10, 'K': 10 # Changed '0' to 'T' for Ten
         }
         rank_titles = {
             'A': 'Ace', '2': 'Two', '3': 'Three', '4': 'Four', '5': 'Five',
-            '6': 'Six', '7': 'Seven', '8': 'Eight', '9': 'Nine', '0': 'Ten',
+            '6': 'Six', '7': 'Seven', '8': 'Eight', '9': 'Nine', 'T': 'Ten', # Changed '0' to 'T' for Ten
             'J': 'Jack', 'Q': 'Queen', 'K': 'King'
         }
         suit_titles = {
@@ -1895,10 +1975,9 @@ class BlackjackGame:
         
         return embed
 
-    def reset_game(self):
+    async def reset_game(self):
         """Resets the game state for a new round."""
-        self.deck = self._create_standard_deck()
-        random.shuffle(self.deck)
+        await self._fetch_and_initialize_deck() # Re-initialize deck from API
         self.player_hand = []
         self.dealer_hand = []
         self.game_over = False
@@ -1908,8 +1987,7 @@ class BlackjackGame:
         Starts the Blackjack game: shuffles, deals initial hands,
         and displays the initial state using an embed with combined card images.
         """
-        # Deck is already created in __init__, just shuffle it
-        random.shuffle(self.deck) 
+        await self._fetch_and_initialize_deck() # Initialize deck from API
 
         # Deal initial hands
         self.player_hand = [self.deal_card(), self.deal_card()]
@@ -2093,7 +2171,7 @@ class TexasHoldEmGameView(discord.ui.View):
             return
         await interaction.response.defer()
 
-        self.game.reset_game()
+        await self.game.reset_game() # Await reset_game as it now fetches from API
         self.game.deal_hole_cards()
 
         # Reset button states for a new game
@@ -2128,7 +2206,7 @@ class TexasHoldEmGame:
         self.channel_id = channel_id
         self.player = player # Human player
         self.bot_player = bot.user # Serene bot as opponent
-        self.deck = self._create_standard_deck()
+        self.deck = [] # Initialize as empty, will be populated by _fetch_and_initialize_deck
         self.player_hole_cards = []
         self.bot_hole_cards = []
         self.community_cards = []
@@ -2136,9 +2214,92 @@ class TexasHoldEmGame:
         self.game_data_url = "https://serenekeks.com/serene_bot_games.php"
         self.game_phase = "pre_flop" # pre_flop, flop, turn, river, showdown
 
-    def _create_standard_deck(self) -> list[dict]:
+    def _build_deck_from_codes(self, card_codes: list[str]) -> list[dict]:
         """
-        Generates a standard 52-card deck with titles, numbers, and codes.
+        Builds a deck of card dictionaries from a list of card codes.
+        This is used after fetching codes from the API.
+        """
+        suits = {'S': 'Spades', 'D': 'Diamonds', 'C': 'Clubs', 'H': 'Hearts'}
+        ranks = {
+            'A': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9,
+            'T': 10, 'J': 10, 'Q': 10, 'K': 10 # Changed '0' to 'T' for Ten
+        }
+        rank_titles = {
+            'A': 'Ace', '2': 'Two', '3': 'Three', '4': 'Four', '5': 'Five',
+            '6': 'Six', '7': 'Seven', '8': 'Eight', '9': 'Nine', 'T': 'Ten',
+            'J': 'Jack', 'Q': 'Queen', 'K': 'King'
+        }
+        suit_titles = {
+            'S': 'Spades', 'D': 'Diamonds', 'C': 'Clubs', 'H': 'Hearts'
+        }
+
+        deck = []
+        for code in card_codes:
+            if len(code) == 2: # Standard two-character code (e.g., 'AC', 'KH')
+                rank_code = code[0]
+                suit_code = code[1]
+            elif len(code) == 3 and code[0] == '1' and code[1] == '0': # Handle '10C', '10S' etc.
+                rank_code = 'T' # Map '10' to 'T' for internal consistency
+                suit_code = code[2]
+            else:
+                print(f"WARNING: Unrecognized card code format: {code}. Skipping.")
+                continue
+
+            # Ensure rank_code and suit_code are valid before accessing dictionaries
+            if rank_code not in ranks or suit_code not in suits:
+                print(f"WARNING: Invalid rank or suit code in {code}. Skipping.")
+                continue
+
+            title = f"{rank_titles.get(rank_code, rank_code)} of {suits.get(suit_code, suit_code)}"
+            card_number = ranks.get(rank_code, 0) # Default to 0 if rank not found
+
+            deck.append({
+                "title": title,
+                "cardNumber": card_number,
+                "code": code # Use the original code from the API
+            })
+        return deck
+
+    async def _fetch_and_initialize_deck(self):
+        """
+        Fetches card codes from the PHP backend and initializes the deck.
+        """
+        get_cards_url = f"{self.game_data_url}?getcards=true"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(get_cards_url) as response:
+                    if response.status == 200:
+                        card_codes = await response.json()
+                        if isinstance(card_codes, list) and all(isinstance(c, str) for c in card_codes):
+                            self.deck = self._build_deck_from_codes(card_codes)
+                            random.shuffle(self.deck) # Shuffle the fetched deck
+                            print(f"Deck initialized with {len(self.deck)} cards from API.")
+                            return True
+                        else:
+                            print(f"Error: API response for getcards was not a list of strings: {card_codes}")
+                            self.deck = self._create_standard_deck_fallback() # Fallback to hardcoded deck
+                            return False
+                    else:
+                        print(f"Error fetching card codes from API: HTTP Status {response.status}")
+                        self.deck = self._create_standard_deck_fallback() # Fallback to hardcoded deck
+                        return False
+        except aiohttp.ClientError as e:
+            print(f"Network error fetching card codes from API: {e}")
+            self.deck = self._create_standard_deck_fallback() # Fallback to hardcoded deck
+            return False
+        except json.JSONDecodeError as e:
+            print(f"JSON decode error fetching card codes from API: {e}")
+            self.deck = self._create_standard_deck_fallback() # Fallback to hardcoded deck
+            return False
+        except Exception as e:
+            print(f"An unexpected error occurred fetching card codes: {e}")
+            self.deck = self._create_standard_deck_fallback() # Fallback to hardcoded deck
+            return False
+
+    def _create_standard_deck_fallback(self) -> list[dict]:
+        """
+        Generates a hardcoded standard 52-card deck as a fallback.
+        This is the original logic.
         """
         suits = ['S', 'D', 'C', 'H'] # Spades, Diamonds, Clubs, Hearts
         ranks = {
@@ -2200,10 +2361,9 @@ class TexasHoldEmGame:
         self.community_cards.append(self.deal_card())
         self.game_phase = "river"
 
-    def reset_game(self):
+    async def reset_game(self):
         """Resets the game state for a new round."""
-        self.deck = self._create_standard_deck()
-        random.shuffle(self.deck)
+        await self._fetch_and_initialize_deck() # Re-initialize deck from API
         self.player_hole_cards = []
         self.bot_hole_cards = []
         self.community_cards = []
@@ -2287,7 +2447,7 @@ class TexasHoldEmGame:
         Starts the Texas Hold 'em game: shuffles, deals initial hands,
         and displays the initial state.
         """
-        random.shuffle(self.deck)
+        await self._fetch_and_initialize_deck() # Initialize deck from API
         self.deal_hole_cards() # Deal initial 2 cards to player and bot
 
         game_view = TexasHoldEmGameView(game=self)
