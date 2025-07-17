@@ -4,6 +4,7 @@ import urllib.parse
 import json
 import asyncio
 import re # Import the re module for regular expressions
+import time # Import time for cache busting
 
 import discord
 from discord.ext import commands, tasks # Import tasks for hourly execution
@@ -2202,8 +2203,9 @@ class TexasHoldEmGame:
         # URL-encode the JSON string
         encoded_game_state = urllib.parse.quote_plus(game_state_json)
 
-        # Construct the final image URL with a single 'game_data' parameter
-        full_game_image_url = f"{self.game_data_url}?game_data={encoded_game_state}"
+        # Add a cache-busting timestamp to the URL
+        cache_buster = int(time.time() * 1000) # Milliseconds since epoch
+        full_game_image_url = f"{self.game_data_url}?game_data={encoded_game_state}&_cb={cache_buster}"
         
         # Implement retry logic for image URL
         max_retries = 5 # Increased retries
