@@ -931,7 +931,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
+                    content=f"🎉 **{winner_player.display_name} wins!** �",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -2191,7 +2191,7 @@ class TexasHoldEmGame:
 
         # Construct the game state data as a dictionary
         game_state_data = {
-            "community": community_card_codes, # Corrected typo here
+            "community": community_card_codes,
             "player": player_card_codes,
             "dealer": dealer_card_codes
         }
@@ -2206,22 +2206,31 @@ class TexasHoldEmGame:
         full_game_image_url = f"{self.game_data_url}?game_data={encoded_game_state}"
         
         # Implement retry logic for image URL
-        max_retries = 3
-        retry_delay_seconds = 1 # 1 second delay between retries
+        max_retries = 5 # Increased retries
+        retry_delay_seconds = 2 # Increased delay
         image_loaded_successfully = False
+
+        # Add a small initial delay before the first attempt
+        await asyncio.sleep(0.5)
 
         for attempt in range(max_retries):
             try:
                 async with aiohttp.ClientSession() as session:
-                    # Use HEAD request to check if the URL is accessible and returns 200 OK
-                    async with session.head(full_game_image_url, timeout=5) as response: # 5 second timeout for HEAD request
-                        if response.status == 200:
+                    # Use GET request to actually fetch content and check content type
+                    # Increased timeout for GET request
+                    async with session.get(full_game_image_url, timeout=15) as response: 
+                        if response.status == 200 and response.content_type.startswith('image/'):
+                            # We don't need to read the content if it's just for URL embedding
+                            # Just confirming it's an image and accessible
                             embed.set_image(url=full_game_image_url)
                             image_loaded_successfully = True
                             print(f"DEBUG: Texas Hold 'em image loaded successfully on attempt {attempt + 1}.")
                             break # Exit loop if successful
                         else:
-                            print(f"WARNING: Texas Hold 'em image check failed (Status: {response.status}) on attempt {attempt + 1}. Retrying...")
+                            status_info = f"Status: {response.status}"
+                            if not response.content_type.startswith('image/'):
+                                status_info += f", Content-Type: {response.content_type}"
+                            print(f"WARNING: Texas Hold 'em image check failed ({status_info}) on attempt {attempt + 1}. Retrying...")
             except aiohttp.ClientError as e:
                 print(f"WARNING: Network error checking Texas Hold 'em image on attempt {attempt + 1}: {e}. Retrying...")
             except asyncio.TimeoutError:
