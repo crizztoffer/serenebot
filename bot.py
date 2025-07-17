@@ -225,7 +225,7 @@ async def on_ready():
     print(f'Logged in as {bot.user.name} ({bot.user.id})')
     print('------')
     try:
-        # Load cogs here
+        # Load cogs first
         await bot.load_extension("cogs.general")
         await bot.load_extension("cogs.games_main")
         await bot.load_extension("cogs.tictactoe")
@@ -233,8 +233,13 @@ async def on_ready():
         await bot.load_extension("cogs.blackjack")
         await bot.load_extension("cogs.texasholdem")
 
-        synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} slash commands.")
+        # After all cogs are loaded, attempt to clear and then sync commands.
+        # This is a robust way to handle CommandSignatureMismatch on startup.
+        print("Attempting to clear existing global commands before syncing...")
+        await bot.tree.clear_commands(guild=None) # Clear global commands
+        synced = await bot.tree.sync(guild=None) # Sync global commands
+        print(f"Cleared and Synced {len(synced)} slash commands globally.")
+        
     except Exception as e:
         print(f"Failed to sync commands or load cogs: {e}")
         traceback.print_exc() # Print the full traceback of the exception
