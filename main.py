@@ -1690,48 +1690,37 @@ class BlackjackGameView(discord.ui.View):
         self.game = game # Reference to the BlackjackGame instance
         self.message = None # To store the message containing the game UI
 
-    async def _update_game_message(self, interaction: discord.Interaction, embed: discord.Embed, player_file: discord.File, dealer_file: discord.File, view_to_use: discord.ui.View = None):
+    async def _update_game_message(self, embed: discord.Embed, player_file: discord.File, dealer_file: discord.File, view_to_use: discord.ui.View = None):
         """Helper to update the main game message by editing the original response, including image files."""
         try:
             if self.message: # self.message holds the actual discord.Message object
-                # Changed 'files' to 'attachments' for WebhookMessage.edit()
                 await self.message.edit(embed=embed, view=view_to_use, attachments=[player_file, dealer_file])
             else:
-                print("WARNING: self.message is not set. Cannot update game message. Attempting to send new message.")
-                await interaction.followup.send(embed=embed, view=view_to_use, files=[player_file, dealer_file])
+                print("WARNING: self.message is not set. Cannot update game message.")
         except discord.errors.NotFound:
-            print("WARNING: Game message not found during edit, likely already deleted. Attempting to send new message.")
-            await interaction.followup.send(embed=embed, view=view_to_use, files=[player_file, dealer_file])
+            print("WARNING: Game message not found during edit, likely already deleted.")
         except Exception as e:
             print(f"WARNING: An error occurred editing game message: {e}")
-            await interaction.followup.send(f"An unexpected error occurred while updating the game: {e}", ephemeral=True)
 
-    def _end_game_buttons(self):
-        """Disables 'Hit' and 'Stay' buttons and enables 'Play Again' button."""
+    def _set_button_states(self, game_state: str):
+        """
+        Sets the disabled state of all buttons based on the current game state.
+        game_state: "playing", "game_over"
+        """
         for item in self.children:
-            if item.custom_id in ["blackjack_hit", "blackjack_stay"]:
-                item.disabled = True
+            if item.custom_id == "blackjack_hit":
+                item.disabled = (game_state != "playing")
+            elif item.custom_id == "blackjack_stay":
+                item.disabled = (game_state != "playing")
             elif item.custom_id == "blackjack_play_again":
-                item.disabled = False # Enable the Play Again button
-        return self # Return self to update the view with disabled/enabled buttons
+                item.disabled = (game_state != "game_over") # Enabled only when game is over
 
     async def on_timeout(self):
         """Called when the view times out due to inactivity."""
         if self.message:
             try:
                 # Disable all buttons and add a play again button if it's not already there
-                for item in self.children:
-                    item.disabled = True
-                # Check if a play again button exists, if not, add it
-                if not any(item.custom_id == "blackjack_play_again" for item in self.children):
-                    self.add_item(discord.ui.Button(label="Play Again", style=discord.ButtonStyle.blurple, custom_id="blackjack_play_again"))
-                
-                # Re-enable the play again button specifically
-                for item in self.children:
-                    if item.custom_id == "blackjack_play_again":
-                        item.disabled = False
-                        break
-
+                self._set_button_states("game_over") # Set buttons for game over (Play Again enabled)
                 await self.message.edit(content="Blackjack game timed out due to inactivity. Click 'Play Again' to start a new game.", view=self, embed=self.message.embed)
 
             except discord.errors.NotFound:
@@ -1739,7 +1728,6 @@ class BlackjackGameView(discord.ui.View):
             except Exception as e:
                 print(f"WARNING: An error occurred editing game message on timeout: {e}")
         
-        # Changed self.game.channel.id to self.game.channel_id
         if self.game.channel_id in active_blackjack_games:
             # We don't delete the game from active_blackjack_games here,
             # as we want the "Play Again" button to be functional.
@@ -1755,35 +1743,26 @@ class BlackjackGameView(discord.ui.View):
             await interaction.response.send_message("This is not your Blackjack game!", ephemeral=True)
             return
         
-        # Disable the specific button that was clicked immediately
-        button.disabled = True
-        # Send an immediate update to disable the button, without changing the embed yet
-        await interaction.response.edit_message(view=self) # This replaces defer() for immediate visual feedback
+        # Disable all action buttons immediately for feedback, re-enable if game continues
+        for item in self.children:
+            if item.custom_id in ["blackjack_hit", "blackjack_stay"]:
+                item.disabled = True
+        await interaction.response.edit_message(view=self) # Immediate visual update
 
         self.game.player_hand.append(self.game.deal_card())
         player_value = self.game.calculate_hand_value(self.game.player_hand)
 
         if player_value > 21:
-            self._end_game_buttons() # This will disable 'Stay' and enable 'Play Again'
+            self._set_button_states("game_over") # Set buttons for game over
             embed, player_file, dealer_file = await self.game._create_game_embed_with_images()
             embed.set_footer(text="BUST! Serene wins.")
-            # Use self.message.edit() to update the message content and re-send the view
-            await self.message.edit(embed=embed, view=self, attachments=[player_file, dealer_file])
+            await self._update_game_message(embed, player_file, dealer_file, self) # Use helper
             await update_user_kekchipz(interaction.guild.id, interaction.user.id, -50)
             del active_blackjack_games[self.game.channel_id]
         else:
-            # If not bust, the Hit and Stay buttons should remain enabled.
-            # Re-enable the Hit button since it was just disabled.
-            button.disabled = False # Re-enable for the next turn
-            # Ensure Stay button is also enabled if it was disabled by _end_game_buttons in a prior state (though it shouldn't be here)
-            for item in self.children:
-                if item.custom_id == "blackjack_stay":
-                    item.disabled = False
-                    break
-
+            self._set_button_states("playing") # Set buttons for continuing game
             embed, player_file, dealer_file = await self.game._create_game_embed_with_images()
-            # Use self.message.edit() to update the message content and re-send the view
-            await self.message.edit(embed=embed, view=self, attachments=[player_file, dealer_file])
+            await self._update_game_message(embed, player_file, dealer_file, self) # Use helper
 
     @discord.ui.button(label="Stay", style=discord.ButtonStyle.red, custom_id="blackjack_stay")
     async def stay_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1792,22 +1771,22 @@ class BlackjackGameView(discord.ui.View):
             await interaction.response.send_message("This is not your Blackjack game!", ephemeral=True)
             return
         
-        # Disable the specific button that was clicked immediately
-        button.disabled = True
-        # Send an immediate update to disable the button
-        await interaction.response.edit_message(view=self) # This replaces defer()
+        # Disable all action buttons immediately for feedback
+        for item in self.children:
+            if item.custom_id in ["blackjack_hit", "blackjack_stay"]:
+                item.disabled = True
+        await interaction.response.edit_message(view=self) # Immediate visual update
 
         # Serene's turn
         player_value = self.game.calculate_hand_value(self.game.player_hand)
-        serene_value = self.game.calculate_hand_value(self.game.dealer_hand) # Renamed dealer_value to serene_value
+        serene_value = self.game.calculate_hand_value(self.game.dealer_hand)
 
         # Serene hits until 17 or more
         while serene_value < 17:
             self.game.dealer_hand.append(self.game.deal_card())
             serene_value = self.game.calculate_hand_value(self.game.dealer_hand)
             embed, player_file, dealer_file = await self.game._create_game_embed_with_images(reveal_dealer=True)
-            # Use self.message.edit() to update during Serene's turn
-            await self.message.edit(embed=embed, view=self, attachments=[player_file, dealer_file])
+            await self._update_game_message(embed, player_file, dealer_file, self) # Use helper
             await asyncio.sleep(1)
 
         result_message = ""
@@ -1825,11 +1804,10 @@ class BlackjackGameView(discord.ui.View):
             result_message = "It's a push (tie)!"
             kekchipz_change = 0
 
-        self._end_game_buttons() # This will disable Hit/Stay and enable Play Again
+        self._set_button_states("game_over") # Set buttons for game over
         embed, player_file, dealer_file = await self.game._create_game_embed_with_images(reveal_dealer=True)
         embed.set_footer(text=result_message)
-        # Final update
-        await self.message.edit(embed=embed, view=self, attachments=[player_file, dealer_file])
+        await self._update_game_message(embed, player_file, dealer_file, self) # Use helper
         await update_user_kekchipz(interaction.guild.id, interaction.user.id, kekchipz_change)
         del active_blackjack_games[self.game.channel_id]
 
@@ -1840,42 +1818,29 @@ class BlackjackGameView(discord.ui.View):
             await interaction.response.send_message("This is not your Blackjack game!", ephemeral=True)
             return
 
-        # Disable the specific button that was clicked immediately
+        # Disable Play Again button immediately
         button.disabled = True
-        await interaction.response.edit_message(view=self) # Send immediate update
+        await interaction.response.edit_message(view=self) # Immediate visual update
 
-        # Reset the existing game instance's state
         self.game.reset_game()
         self.game.player_hand = [self.game.deal_card(), self.game.deal_card()]
         self.game.dealer_hand = [self.game.deal_card(), self.game.deal_card()]
 
-        # Re-enable the Hit and Stay buttons for the new game
-        for item in self.children:
-            if item.custom_id in ["blackjack_hit", "blackjack_stay"]:
-                item.disabled = False
-            elif item.custom_id == "blackjack_play_again":
-                item.disabled = True # Disable play again until game ends
-
-        # Create the initial embed for the new game state
+        self._set_button_states("playing") # Reset buttons for new game
+        
         embed, player_file, dealer_file = await self.game._create_game_embed_with_images()
 
-        # Edit the original message with the new game state and re-enabled buttons
         try:
-            # Fix: Changed 'files' to 'attachments'
-            await self.message.edit(embed=embed, view=self, attachments=[player_file, dealer_file])
-            # Fix: Changed self.game.channel.id to self.game.channel_id
+            await self._update_game_message(embed, player_file, dealer_file, self) # Use helper
             active_blackjack_games[self.game.channel_id] = self
         except discord.errors.NotFound:
             print("WARNING: Original game message not found during 'Play Again' edit.")
             await interaction.followup.send("Could not restart game. Please try `/serene game blackjack` again.", ephemeral=True)
-            # Clean up if the message is gone
-            # Fix: Changed self.game.channel.id to self.game.channel_id
             if self.game.channel_id in active_blackjack_games:
                 del active_blackjack_games[self.game.channel_id]
         except Exception as e:
             print(f"WARNING: An error occurred during 'Play Again' edit: {e}")
             await interaction.followup.send("An error occurred while restarting the game.", ephemeral=True)
-            # Fix: Changed self.game.channel.id to self.game.channel_id
             if self.game.channel_id in active_blackjack_games:
                 del active_blackjack_games[self.game.channel_id]
         
@@ -2072,7 +2037,7 @@ class TexasHoldEmGameView(discord.ui.View):
         self.message = None # To store the message containing the game UI
         # Buttons are now added via decorators below, so _add_initial_buttons() is removed.
 
-    async def _update_game_message(self, interaction: discord.Interaction, embed: discord.Embed, player_file: discord.File, bot_file: discord.File, community_file: discord.File, view_to_use: discord.ui.View = None):
+    async def _update_game_message(self, embed: discord.Embed, player_file: discord.File, bot_file: discord.File, community_file: discord.File, view_to_use: discord.ui.View = None):
         """Helper to update the main game message by editing the original response, including image files."""
         files_to_send = [player_file, bot_file]
         if community_file:
@@ -2080,17 +2045,13 @@ class TexasHoldEmGameView(discord.ui.View):
 
         try:
             if self.message: # self.message holds the actual discord.Message object
-                # Changed 'files' to 'attachments' for WebhookMessage.edit()
                 await self.message.edit(embed=embed, view=view_to_use, attachments=files_to_send)
             else:
-                print("WARNING: self.message is not set. Cannot update game message. Attempting to send new message.")
-                await interaction.followup.send(embed=embed, view=view_to_use, files=files_to_send)
+                print("WARNING: self.message is not set. Cannot update game message.")
         except discord.errors.NotFound:
-            print("WARNING: Game message not found during edit, likely already deleted. Attempting to send new message.")
-            await interaction.followup.send(embed=embed, view=view_to_use, files=files_to_send)
+            print("WARNING: Game message not found during edit, likely already deleted.")
         except Exception as e:
             print(f"WARNING: An error occurred editing game message: {e}")
-            await interaction.followup.send(f"An unexpected error occurred while updating the game: {e}", ephemeral=True)
 
     def _enable_next_phase_button(self, current_phase: str):
         """Enables the button for the next phase of the game."""
@@ -2154,7 +2115,7 @@ class TexasHoldEmGameView(discord.ui.View):
         self.game.deal_flop() # Advance game state
         self._enable_next_phase_button("flop") # Enable next button, disable others
         embed, player_file, bot_file, community_file = await self.game._create_game_embed_with_images()
-        await self.message.edit(embed=embed, view=self, attachments=[player_file, bot_file, community_file])
+        await self._update_game_message(embed, player_file, bot_file, community_file, self)
 
     @discord.ui.button(label="Deal Turn", style=discord.ButtonStyle.primary, custom_id="holdem_turn", disabled=True, row=0)
     async def deal_turn_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2168,7 +2129,7 @@ class TexasHoldEmGameView(discord.ui.View):
         self.game.deal_turn()
         self._enable_next_phase_button("turn")
         embed, player_file, bot_file, community_file = await self.game._create_game_embed_with_images()
-        await self.message.edit(embed=embed, view=self, attachments=[player_file, bot_file, community_file])
+        await self._update_game_message(embed, player_file, bot_file, community_file, self)
 
     @discord.ui.button(label="Deal River", style=discord.ButtonStyle.primary, custom_id="holdem_river", disabled=True, row=0)
     async def deal_river_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2182,7 +2143,7 @@ class TexasHoldEmGameView(discord.ui.View):
         self.game.deal_river()
         self._enable_next_phase_button("river")
         embed, player_file, bot_file, community_file = await self.game._create_game_embed_with_images()
-        await self.message.edit(embed=embed, view=self, attachments=[player_file, bot_file, community_file])
+        await self._update_game_message(embed, player_file, bot_file, community_file, self)
 
     @discord.ui.button(label="Showdown", style=discord.ButtonStyle.red, custom_id="holdem_showdown", disabled=True, row=1) # Moved to row 1
     async def showdown_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2195,7 +2156,7 @@ class TexasHoldEmGameView(discord.ui.View):
 
         self._end_game_buttons() # Disable all game buttons, enable Play Again
         embed, player_file, bot_file, community_file = await self.game._create_game_embed_with_images(reveal_opponent=True)
-        await self.message.edit(embed=embed, view=self, attachments=[player_file, bot_file, community_file])
+        await self._update_game_message(embed, player_file, bot_file, community_file, self)
         del active_texasholdem_games[self.game.channel_id]
         self.stop()
 
@@ -2220,7 +2181,7 @@ class TexasHoldEmGameView(discord.ui.View):
         
         embed, player_file, bot_file, community_file = await self.game._create_game_embed_with_images()
         try:
-            await self.message.edit(embed=embed, view=self, attachments=[player_file, bot_file, community_file])
+            await self._update_game_message(embed, player_file, bot_file, community_file, self)
             active_texasholdem_games[self.game.channel_id] = self
         except discord.errors.NotFound:
             print("WARNING: Original game message not found during 'Play Again' edit for Hold 'em.")
