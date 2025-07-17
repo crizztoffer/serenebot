@@ -2318,6 +2318,7 @@ class TexasHoldEmGame:
         """
         Fetches card codes from the PHP backend and initializes the deck.
         """
+        print("DEBUG: _fetch_and_initialize_deck called.")
         get_cards_url = f"{self.game_data_url}?getcards=true"
         try:
             async with aiohttp.ClientSession() as session:
@@ -2327,26 +2328,26 @@ class TexasHoldEmGame:
                         if isinstance(card_codes, list) and all(isinstance(c, str) for c in card_codes):
                             self.deck = self._build_deck_from_codes(card_codes)
                             random.shuffle(self.deck) # Shuffle the fetched deck
-                            print(f"Deck initialized with {len(self.deck)} cards from API.")
+                            print(f"DEBUG: Deck initialized with {len(self.deck)} cards from API.")
                             return True
                         else:
-                            print(f"Error: API response for getcards was not a list of strings: {card_codes}")
+                            print(f"ERROR: API response for getcards was not a list of strings: {card_codes}")
                             self.deck = self._create_standard_deck_fallback() # Fallback to hardcoded deck
                             return False
                     else:
-                        print(f"Error fetching card codes from API: HTTP Status {response.status}")
+                        print(f"ERROR: Fetching card codes from API failed: HTTP Status {response.status}. URL: {get_cards_url}")
                         self.deck = self._create_standard_deck_fallback() # Fallback to hardcoded deck
                         return False
         except aiohttp.ClientError as e:
-            print(f"Network error fetching card codes from API: {e}")
+            print(f"ERROR: Network error fetching card codes from API: {e}. URL: {get_cards_url}")
             self.deck = self._create_standard_deck_fallback() # Fallback to hardcoded deck
             return False
         except json.JSONDecodeError as e:
-            print(f"JSON decode error fetching card codes from API: {e}")
+            print(f"ERROR: JSON decode error fetching card codes from API: {e}. Response was: {await response.text()}")
             self.deck = self._create_standard_deck_fallback() # Fallback to hardcoded deck
             return False
         except Exception as e:
-            print(f"An unexpected error occurred fetching card codes: {e}")
+            print(f"ERROR: An unexpected error occurred fetching card codes: {e}. URL: {get_cards_url}")
             self.deck = self._create_standard_deck_fallback() # Fallback to hardcoded deck
             return False
 
@@ -2355,6 +2356,7 @@ class TexasHoldEmGame:
         Generates a hardcoded standard 52-card deck as a fallback.
         This is the original logic.
         """
+        print("DEBUG: Using standard deck fallback.")
         suits = ['S', 'D', 'C', 'H'] # Spades, Diamonds, Clubs, Hearts
         ranks = {
             'A': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9,
@@ -2387,11 +2389,14 @@ class TexasHoldEmGame:
         Returns the dealt card (dict with 'title', 'cardNumber', and 'code').
         """
         if not self.deck:
+            # Handle case where deck is empty (e.g., reshuffle or end game)
             print("Warning: Deck is empty, cannot deal more cards.")
+            # Return a dummy card with empty image and code for graceful failure
             return {"title": "No Card", "cardNumber": 0, "code": "NO_CARD"} 
         
         card = random.choice(self.deck)
-        self.deck.remove(card)
+        self.deck.remove(card) # Remove the dealt card from the deck
+        print(f"DEBUG: Dealt card: {card['code']}")
         return card
 
     def deal_hole_cards(self):
@@ -2399,24 +2404,31 @@ class TexasHoldEmGame:
         self.player_hole_cards = [self.deal_card(), self.deal_card()]
         self.bot_hole_cards = [self.deal_card(), self.deal_card()]
         self.game_phase = "pre_flop"
+        print(f"DEBUG: Player hole cards: {[c['code'] for c in self.player_hole_cards]}")
+        print(f"DEBUG: Bot hole cards (hidden): {[c['code'] for c in self.bot_hole_cards]}")
+
 
     def deal_flop(self):
         """Deals 3 community cards (the flop)."""
         self.community_cards.extend([self.deal_card(), self.deal_card(), self.deal_card()])
         self.game_phase = "flop"
+        print(f"DEBUG: Flop dealt: {[c['code'] for c in self.community_cards]}")
 
     def deal_turn(self):
         """Deals 1 community card (the turn)."""
         self.community_cards.append(self.deal_card())
         self.game_phase = "turn"
+        print(f"DEBUG: Turn dealt: {[c['code'] for c in self.community_cards]}")
 
     def deal_river(self):
         """Deals 1 community card (the river)."""
         self.community_cards.append(self.deal_card())
         self.game_phase = "river"
+        print(f"DEBUG: River dealt: {[c['code'] for c in self.community_cards]}")
 
     async def reset_game(self):
         """Resets the game state for a new round."""
+        print("DEBUG: Resetting game.")
         await self._fetch_and_initialize_deck() # Re-initialize deck from API
         self.player_hole_cards = []
         self.bot_hole_cards = []
@@ -2428,6 +2440,7 @@ class TexasHoldEmGame:
         Fetches the game state image as raw bytes from the PHP backend.
         Returns (image_bytes, filename) or (None, None) on failure.
         """
+        print(f"DEBUG: _fetch_game_image called with reveal_opponent={reveal_opponent}")
         community_card_codes = [card['code'] for card in self.community_cards if 'code' in card]
         player_card_codes = [card['code'] for card in self.player_hole_cards if 'code' in card]
 
@@ -2446,6 +2459,8 @@ class TexasHoldEmGame:
         cache_buster = int(time.time() * 1000)
         full_game_image_url = f"{self.game_data_url}?game_data={encoded_game_state}&_cb={cache_buster}"
 
+        print(f"DEBUG: Image fetch URL: {full_game_image_url}")
+
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(full_game_image_url, timeout=15) as response:
@@ -2454,7 +2469,9 @@ class TexasHoldEmGame:
                         # Infer filename from content type, default to .png
                         ext = response.content_type.split('/')[-1] if '/' in response.content_type else 'png'
                         filename = f"holdem_board.{ext}"
-                        print(f"DEBUG: Texas Hold 'em image fetched successfully ({len(image_bytes)} bytes).")
+                        # Sanitize filename to remove any potential null bytes
+                        filename = filename.replace('\x00', '')
+                        print(f"DEBUG: Texas Hold 'em image fetched successfully ({len(image_bytes)} bytes), filename: '{filename}'.")
                         return image_bytes, filename
                     else:
                         status_info = f"Status: {response.status}"
@@ -2494,6 +2511,7 @@ class TexasHoldEmGame:
         Starts the Texas Hold 'em game: shuffles, deals initial hands,
         and displays the initial state.
         """
+        print("DEBUG: start_game called for Texas Hold 'em.")
         await self._fetch_and_initialize_deck() # Initialize deck from API
         self.deal_hole_cards() # Deal initial 2 cards to player and bot
 
@@ -2506,12 +2524,13 @@ class TexasHoldEmGame:
         if image_bytes and image_filename:
             file = discord.File(image_bytes, filename=image_filename)
             self.game_message = await interaction.followup.send(embed=initial_embed, files=[file], view=game_view)
+            print("DEBUG: Initial Texas Hold 'em game message sent with image.")
         else:
             self.game_message = await interaction.followup.send(
                 embed=initial_embed.set_footer(text=f"Game Phase: {self.game_phase.replace('_', ' ').title()} | Error: Could not load card images."),
                 view=game_view
             )
-            print("WARNING: Could not send initial Texas Hold 'em image due to fetch failure.")
+            print("WARNING: Could not send initial Texas Hold 'em image due to fetch failure. Message sent without image.")
 
         game_view.message = self.game_message
         active_texasholdem_games[self.channel_id] = game_view
