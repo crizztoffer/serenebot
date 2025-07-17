@@ -519,14 +519,14 @@ class CategoryValueSelect(discord.ui.Select):
                 if board_message_content: # Only send if there's content (i.e., not Final Jeopardy yet)
                     game.board_message = await interaction.channel.send(
                         content=board_message_content,
-                        view=new_jeopardy_view
+                        view=jeopardy_view
                     )
                 else:
                     # If we reached Final Jeopardy and no board message is sent, clean up view
-                    if new_jeopardy_view.children: # If there are still components, disable them
-                        for item in new_jeopardy_view.children:
+                    if jeopardy_view.children: # If there are still components, disable them
+                        for item in jeopardy_view.children:
                             item.disabled = True
-                        await interaction.channel.send("Game concluded. No more questions.", view=new_jeopardy_view)
+                        await interaction.channel.send("Game concluded. No more questions.", view=jeopardy_view)
                     else:
                         await interaction.channel.send("Game concluded. No more questions.")
 
@@ -749,7 +749,7 @@ class TicTacToeButton(discord.ui.Button):
         elif view._check_draw():
             await update_user_kekchipz(interaction.guild.id, interaction.user.id, 25) # Human player gets kekchipz for a draw
             await interaction.edit_original_response(
-                content="It's a **draw!** �",
+                content="It's a **draw!** 🤝",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -2004,11 +2004,24 @@ class TexasHoldEmGameView(discord.ui.View):
         if interaction.user.id != self.game.player.id:
             await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
             return
-        await interaction.response.defer()
-        button.disabled = True # Disable the button immediately
+        
+        await interaction.response.defer() # Acknowledge the interaction
+
+        # Immediately disable all current buttons in the view
+        for item in self.children:
+            item.disabled = True
+        
+        # Update the message to reflect the disabled buttons BEFORE image loading
+        await self._update_game_message(interaction, self.message.embed, view_to_use=self) # Use current embed
+
+        # Perform game logic
         self.game.deal_flop()
-        new_embed = await self.game._create_game_embed() # Await the embed creation
-        self._enable_next_phase_button("flop")
+        new_embed = await self.game._create_game_embed() # This takes time
+
+        # After game logic and image loading, enable the next appropriate button
+        self._enable_next_phase_button("flop") # This will re-enable the 'Deal Turn' button
+
+        # Update the message again with the new embed and the newly enabled button
         await self._update_game_message(interaction, new_embed, view_to_use=self)
 
     @discord.ui.button(label="Deal Turn", style=discord.ButtonStyle.primary, custom_id="holdem_turn", disabled=True, row=0)
@@ -2017,7 +2030,14 @@ class TexasHoldEmGameView(discord.ui.View):
             await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
             return
         await interaction.response.defer()
-        button.disabled = True # Disable the button immediately
+        
+        # Immediately disable all current buttons in the view
+        for item in self.children:
+            item.disabled = True
+        
+        # Update the message to reflect the disabled buttons BEFORE image loading
+        await self._update_game_message(interaction, self.message.embed, view_to_use=self) # Use current embed
+
         self.game.deal_turn()
         new_embed = await self.game._create_game_embed() # Await the embed creation
         self._enable_next_phase_button("turn")
@@ -2029,7 +2049,14 @@ class TexasHoldEmGameView(discord.ui.View):
             await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
             return
         await interaction.response.defer()
-        button.disabled = True # Disable the button immediately
+        
+        # Immediately disable all current buttons in the view
+        for item in self.children:
+            item.disabled = True
+        
+        # Update the message to reflect the disabled buttons BEFORE image loading
+        await self._update_game_message(interaction, self.message.embed, view_to_use=self) # Use current embed
+
         self.game.deal_river()
         new_embed = await self.game._create_game_embed() # Await the embed creation
         self._enable_next_phase_button("river")
@@ -2041,7 +2068,14 @@ class TexasHoldEmGameView(discord.ui.View):
             await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
             return
         await interaction.response.defer()
-        button.disabled = True # Disable the button immediately
+        
+        # Immediately disable all current buttons in the view
+        for item in self.children:
+            item.disabled = True
+        
+        # Update the message to reflect the disabled buttons BEFORE image loading
+        await self._update_game_message(interaction, self.message.embed, view_to_use=self) # Use current embed
+
         final_embed = await self.game._create_game_embed(reveal_opponent=True) # Await the embed creation
         self._end_game_buttons()
         await self._update_game_message(interaction, final_embed, view_to_use=self)
