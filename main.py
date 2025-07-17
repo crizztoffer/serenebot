@@ -748,7 +748,7 @@ class TicTacToeButton(discord.ui.Button):
         elif view._check_draw():
             await update_user_kekchipz(interaction.guild.id, interaction.user.id, 25) # Human player gets kekchipz for a draw
             await interaction.edit_original_response(
-                content="It's a **draw!** �",
+                content="It's a **draw!** 🤝",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -1465,8 +1465,8 @@ async def story_command(interaction: discord.Interaction):
         "kissed Crizz P."
         "spun around so fast that they [verb_past_tense]"
         "vomitted so loudly that they [verb_past_tense]"
-        "sand-blastd out a power-shart so strong, that they [verb_past_tense]"
-        "slipped off the roof above—and with a thump—they [verb_past_tense]"
+        "sand-blast": "sand-blasted", # "sand-blasted out a power-shart"
+        "slip": "slipped", # "slipped off the roof"
 
         Avoid verbs that are passive, imply a state of being, or require complex grammatical structures (e.g., phrasal verbs that depend heavily on prepositions) to make sense in these direct contexts. Focus on verbs that are direct and complete actions.
 
@@ -2005,7 +2005,7 @@ class TexasHoldEmGameView(discord.ui.View):
             return
         await interaction.response.defer()
         self.game.deal_flop()
-        new_embed = self.game._create_game_embed()
+        new_embed = await self.game._create_game_embed() # Await the embed creation
         self._enable_next_phase_button("flop")
         await self._update_game_message(interaction, new_embed, view_to_use=self)
 
@@ -2016,7 +2016,7 @@ class TexasHoldEmGameView(discord.ui.View):
             return
         await interaction.response.defer()
         self.game.deal_turn()
-        new_embed = self.game._create_game_embed()
+        new_embed = await self.game._create_game_embed() # Await the embed creation
         self._enable_next_phase_button("turn")
         await self._update_game_message(interaction, new_embed, view_to_use=self)
 
@@ -2027,7 +2027,7 @@ class TexasHoldEmGameView(discord.ui.View):
             return
         await interaction.response.defer()
         self.game.deal_river()
-        new_embed = self.game._create_game_embed()
+        new_embed = await self.game._create_game_embed() # Await the embed creation
         self._enable_next_phase_button("river")
         await self._update_game_message(interaction, new_embed, view_to_use=self)
 
@@ -2037,7 +2037,7 @@ class TexasHoldEmGameView(discord.ui.View):
             await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
             return
         await interaction.response.defer()
-        final_embed = self.game._create_game_embed(reveal_opponent=True)
+        final_embed = await self.game._create_game_embed(reveal_opponent=True) # Await the embed creation
         self._end_game_buttons()
         await self._update_game_message(interaction, final_embed, view_to_use=self)
         del active_texasholdem_games[self.game.channel_id] # Game ends after showdown
@@ -2060,7 +2060,7 @@ class TexasHoldEmGameView(discord.ui.View):
             elif item.custom_id in ["holdem_turn", "holdem_river", "holdem_showdown", "holdem_play_again"]:
                 item.disabled = True
         
-        initial_embed = self.game._create_game_embed()
+        initial_embed = await self.game._create_game_embed() # Await the embed creation
         try:
             await interaction.edit_original_response(embed=initial_embed, view=self)
             active_texasholdem_games[self.game.channel.id] = self
@@ -2166,9 +2166,10 @@ class TexasHoldEmGame:
         self.community_cards = []
         self.game_phase = "pre_flop" # Reset phase
 
-    def _create_game_embed(self, reveal_opponent: bool = False) -> discord.Embed:
+    async def _create_game_embed(self, reveal_opponent: bool = False) -> discord.Embed:
         """
         Creates and returns a Discord Embed object representing the current game state.
+        Includes a retry mechanism for fetching the image from the PHP backend.
         :param reveal_opponent: If True, reveals the bot's hole cards.
         :return: A discord.Embed object.
         """
@@ -2190,7 +2191,7 @@ class TexasHoldEmGame:
 
         # Construct the game state data as a dictionary
         game_state_data = {
-            "community": community_card_codes,
+            "community": community_0card_codes,
             "player": player_card_codes,
             "dealer": dealer_card_codes
         }
@@ -2204,13 +2205,38 @@ class TexasHoldEmGame:
         # Construct the final image URL with a single 'game_data' parameter
         full_game_image_url = f"{self.game_data_url}?game_data={encoded_game_state}"
         
-        # Print the generated URL for debugging
-        print(f"DEBUG: Generated Texas Hold 'em image URL: {full_game_image_url}")
+        # Implement retry logic for image URL
+        max_retries = 3
+        retry_delay_seconds = 1 # 1 second delay between retries
+        image_loaded_successfully = False
 
-        # Set the main image of the embed to the combined image
-        embed.set_image(url=full_game_image_url)
+        for attempt in range(max_retries):
+            try:
+                async with aiohttp.ClientSession() as session:
+                    # Use HEAD request to check if the URL is accessible and returns 200 OK
+                    async with session.head(full_game_image_url, timeout=5) as response: # 5 second timeout for HEAD request
+                        if response.status == 200:
+                            embed.set_image(url=full_game_image_url)
+                            image_loaded_successfully = True
+                            print(f"DEBUG: Texas Hold 'em image loaded successfully on attempt {attempt + 1}.")
+                            break # Exit loop if successful
+                        else:
+                            print(f"WARNING: Texas Hold 'em image check failed (Status: {response.status}) on attempt {attempt + 1}. Retrying...")
+            except aiohttp.ClientError as e:
+                print(f"WARNING: Network error checking Texas Hold 'em image on attempt {attempt + 1}: {e}. Retrying...")
+            except asyncio.TimeoutError:
+                print(f"WARNING: Timeout checking Texas Hold 'em image on attempt {attempt + 1}. Retrying...")
+            except Exception as e:
+                print(f"WARNING: Unexpected error checking Texas Hold 'em image on attempt {attempt + 1}: {e}. Retrying...")
+            
+            if not image_loaded_successfully and attempt < max_retries - 1:
+                await asyncio.sleep(retry_delay_seconds) # Wait before retrying
 
-        embed.set_footer(text=f"Game Phase: {self.game_phase.replace('_', ' ').title()}")
+        if not image_loaded_successfully:
+            embed.set_footer(text=f"Game Phase: {self.game_phase.replace('_', ' ').title()} | Note: Card images failed to load. Please try again later.")
+            print(f"ERROR: Failed to load Texas Hold 'em image after {max_retries} attempts. URL: {full_game_image_url}")
+        else:
+            embed.set_footer(text=f"Game Phase: {self.game_phase.replace('_', ' ').title()}")
         
         return embed
 
@@ -2223,7 +2249,7 @@ class TexasHoldEmGame:
         self.deal_hole_cards() # Deal initial 2 cards to player and bot
 
         game_view = TexasHoldEmGameView(game=self)
-        initial_embed = self._create_game_embed()
+        initial_embed = await self._create_game_embed() # Await the embed creation
 
         self.game_message = await interaction.followup.send(embed=initial_embed, view=game_view)
         game_view.message = self.game_message
