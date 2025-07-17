@@ -2,10 +2,11 @@
 import os
 import discord
 from discord.ext import commands, tasks
+from discord import app_commands # Add this line
 import asyncio
 import aiomysql
-import json # Import json for initial_json_data
-import re # Import re for calculate_word_similarity
+import json
+import re
 
 # Define intents
 intents = discord.Intents.default()
