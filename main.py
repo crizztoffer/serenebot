@@ -1201,7 +1201,7 @@ def to_past_tense(verb):
         "break": "broke", "choose": "chose", "drive": "drove", "fall": "fell", "fly": "flew",
         "forget": "forgot", "hold": "held", "read": "read", "ride": "rode", "speak": "spoke",
         "stand": "stood", "steal": "stole", "strike": "struck", "write": "wrote",
-        "burst": "burst", "hit": "hit", "cut": "cut", "cut", "cost": "cost", "let": "let",
+        "burst": "burst", "hit": "hit", "cut": "cut", "cost": "cost", "let": "let",
         "shut": "shut", "spread": "spread",
         # Explicitly added from PHP's $forth array to ensure correct past tense handling
         "shit": "shit", # "shit out a turd"
@@ -1463,9 +1463,9 @@ async def story_command(interaction: discord.Interaction):
         - "took a cock so big that they [verb_past_tense]"
         - "put their thing down, flipped it, and reversed it so perfectly, that they [verb_past_tense]"
         "waffle-spanked a vagrant so hard that they [verb_past_tense]"
-        "kissed Crizz P."
-        "spun around so fast that they [verb_past_tense]"
-        "vomitted so loudly that they [verb_past_tense]"
+        "kiss": "kissed", # "kissed Crizz P."
+        "spin": "spun", # "spun around"
+        "vomit": "vomitted", # "vomitted so loudly"
         "sand-blast": "sand-blasted", # "sand-blasted out a power-shart"
         "slip": "slipped", # "slipped off the roof"
 
@@ -1723,6 +1723,30 @@ class BlackjackGameView(discord.ui.View):
 
         # Create the initial embed for the new game state
         initial_embed = self.game._create_game_embed()
+
+        # Construct the combo string for the player's hand images
+        player_card_codes = [card['code'] for card in self.game.player_hand if 'code' in card]
+        player_combo_url = f"{self.game.game_data_url}?combo={','.join(player_card_codes)}" if player_card_codes else ""
+
+        # Construct the combo string for Serene's hand images
+        serene_display_cards = []
+        # Only show the first card (the PHP backend will automatically add a 'back' for the hidden card)
+        if self.game.dealer_hand and 'code' in self.game.dealer_hand[0]:
+            serene_display_cards.append(self.game.dealer_hand[0]['code'])
+        serene_combo_url = f"{self.game.game_data_url}?combo={','.join(serene_display_cards)}" if serene_display_cards else ""
+        
+        # Add cache buster to image URLs
+        cache_buster = int(time.time() * 1000)
+        player_combo_url += f"&_cb={cache_buster}"
+        serene_combo_url += f"&_cb={cache_buster}"
+
+        # Set the main image of the embed to the combined player hand image
+        if player_combo_url:
+            initial_embed.set_image(url=player_combo_url)
+        
+        # Set the thumbnail of the embed to the combined Serene hand image
+        if serene_combo_url:
+            initial_embed.set_thumbnail(url=serene_combo_url)
 
         # Edit the original message with the new game state and re-enabled buttons
         try:
@@ -2030,7 +2054,7 @@ class TexasHoldEmGameView(discord.ui.View):
         """
         try:
             file = discord.File(image_bytes, filename=image_filename)
-            await interaction.edit_original_response(embed=embed, files=[file], view=view_to_use)
+            await interaction.edit_original_response(embed=embed, attachments=[file], view=view_to_use) # Changed files to attachments
         except discord.errors.NotFound:
             print("WARNING: Original interaction message not found during edit, likely already deleted or inaccessible.")
         except Exception as e:
@@ -2190,7 +2214,7 @@ class TexasHoldEmGameView(discord.ui.View):
         final_embed = self.game._create_game_embed(reveal_opponent=True) # Await the embed creation
         self._end_game_buttons()
         await self._update_game_message(interaction, final_embed, image_bytes, image_filename, view_to_use=self)
-        del active_texasholdem_games[self.game.channel_id] # Game ends after showdown
+        del active_texasholdem_games[self.game.channel.id] # Game ends after showdown
         self.stop() # Stop the view after game ends
 
     @discord.ui.button(label="Play Again", style=discord.ButtonStyle.blurple, custom_id="holdem_play_again", disabled=True, row=1) # Moved to row 1
