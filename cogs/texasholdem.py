@@ -421,7 +421,7 @@ class TexasHoldEm(commands.Cog):
                 print(f"ERROR: Timeout fetching Texas Hold 'em image. URL: {full_game_image_url}")
                 return None, None
             except Exception as e:
-                print(f"ERROR: Unexpected error fetching Texas Hold 'em image: {e}. URL: {full_game_image_url}")
+                print(f"ERROR: An unexpected error occurred fetching Texas Hold 'em image: {e}. URL: {full_game_image_url}")
                 return None, None
 
         def _create_game_embed(self, reveal_opponent: bool = False) -> discord.Embed:
