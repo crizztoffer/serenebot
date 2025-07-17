@@ -1694,7 +1694,8 @@ class BlackjackGameView(discord.ui.View):
         """Helper to update the main game message by editing the original response, including image files."""
         try:
             if self.message: # self.message holds the actual discord.Message object
-                await self.message.edit(embed=embed, view=view_to_use, files=[player_file, dealer_file], attachments=[]) # Clear old attachments
+                # Changed 'files' to 'attachments' for WebhookMessage.edit()
+                await self.message.edit(embed=embed, view=view_to_use, attachments=[player_file, dealer_file])
             else:
                 print("WARNING: self.message is not set. Cannot update game message. Attempting to send new message.")
                 await interaction.followup.send(embed=embed, view=view_to_use, files=[player_file, dealer_file])
@@ -2060,7 +2061,8 @@ class TexasHoldEmGameView(discord.ui.View):
 
         try:
             if self.message: # self.message holds the actual discord.Message object
-                await self.message.edit(embed=embed, view=view_to_use, files=files_to_send, attachments=[]) # Clear old attachments
+                # Changed 'files' to 'attachments' for WebhookMessage.edit()
+                await self.message.edit(embed=embed, view=view_to_use, attachments=files_to_send)
             else:
                 print("WARNING: self.message is not set. Cannot update game message. Attempting to send new message.")
                 await interaction.followup.send(embed=embed, view=view_to_use, files=files_to_send)
