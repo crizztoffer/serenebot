@@ -1760,17 +1760,19 @@ class BlackjackGameView(discord.ui.View):
         self.game.player_hand.append(self.game.deal_card())
         player_value = self.game.calculate_hand_value(self.game.player_hand)
 
-        embed, player_file, dealer_file = await self.game._create_game_embed_with_images() # Get embed and files
-
+        # Check for bust immediately after dealing the card
         if player_value > 21:
             # Player busts
-            embed.set_footer(text="BUST! Serene wins.")
+            # Disable buttons BEFORE updating the message
             self._end_game_buttons() # Disable Hit/Stay, enable Play Again
+            embed, player_file, dealer_file = await self.game._create_game_embed_with_images() # Get embed and files
+            embed.set_footer(text="BUST! Serene wins.")
             await self._update_game_message(interaction, embed, player_file, dealer_file, view_to_use=self) # Update with new buttons
             await update_user_kekchipz(interaction.guild.id, interaction.user.id, -50) # Player loses kekchipz
             del active_blackjack_games[self.game.channel_id] # Remove game from active games
         else:
             # Player can hit again - send new message with updated embed
+            embed, player_file, dealer_file = await self.game._create_game_embed_with_images() # Get embed and files
             await self._update_game_message(interaction, embed, player_file, dealer_file, view_to_use=self) # Keep buttons active
 
     @discord.ui.button(label="Stay", style=discord.ButtonStyle.red, custom_id="blackjack_stay")
@@ -1812,9 +1814,10 @@ class BlackjackGameView(discord.ui.View):
             result_message = "It's a push (tie)!"
             kekchipz_change = 0 # No change for a push
 
+        # Disable buttons BEFORE updating the message
+        self._end_game_buttons() # Disable Hit/Stay, enable Play Again
         embed, player_file, dealer_file = await self.game._create_game_embed_with_images(reveal_dealer=True)
         embed.set_footer(text=result_message)
-        self._end_game_buttons() # Disable Hit/Stay, enable Play Again
         await self._update_game_message(interaction, embed, player_file, dealer_file, view_to_use=self) # Update with new buttons
         await update_user_kekchipz(interaction.guild.id, interaction.user.id, kekchipz_change)
         
@@ -2122,7 +2125,7 @@ class TexasHoldEmGameView(discord.ui.View):
                 print("WARNING: Game message not found during timeout, likely already deleted.")
             except Exception as e:
                 print(f"WARNING: An error occurred editing game message on timeout: {e}")
-        # Fix: Changed self.game.channel.id to self.game.channel_id
+        # Fix: Changed self.game.channel_id to self.game.channel_id
         if self.game.channel_id in active_texasholdem_games:
             pass # Keep for Play Again functionality
         print(f"Texas Hold 'em game in channel {self.game.channel_id} timed out.")
@@ -2133,9 +2136,9 @@ class TexasHoldEmGameView(discord.ui.View):
             await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
             return
         await interaction.response.defer()
-        self.game.deal_flop()
-        embed, player_file, bot_file, community_file = await self.game._create_game_embed_with_images()
+        # Enable next phase button BEFORE updating the message
         self._enable_next_phase_button("flop")
+        embed, player_file, bot_file, community_file = await self.game._create_game_embed_with_images()
         await self._update_game_message(interaction, embed, player_file, bot_file, community_file, view_to_use=self)
 
     @discord.ui.button(label="Deal Turn", style=discord.ButtonStyle.primary, custom_id="holdem_turn", disabled=True, row=0)
@@ -2144,9 +2147,9 @@ class TexasHoldEmGameView(discord.ui.View):
             await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
             return
         await interaction.response.defer()
-        self.game.deal_turn()
-        embed, player_file, bot_file, community_file = await self.game._create_game_embed_with_images()
+        # Enable next phase button BEFORE updating the message
         self._enable_next_phase_button("turn")
+        embed, player_file, bot_file, community_file = await self.game._create_game_embed_with_images()
         await self._update_game_message(interaction, embed, player_file, bot_file, community_file, view_to_use=self)
 
     @discord.ui.button(label="Deal River", style=discord.ButtonStyle.primary, custom_id="holdem_river", disabled=True, row=0)
@@ -2155,9 +2158,9 @@ class TexasHoldEmGameView(discord.ui.View):
             await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
             return
         await interaction.response.defer()
-        self.game.deal_river()
-        embed, player_file, bot_file, community_file = await self.game._create_game_embed_with_images()
+        # Enable next phase button BEFORE updating the message
         self._enable_next_phase_button("river")
+        embed, player_file, bot_file, community_file = await self.game._create_game_embed_with_images()
         await self._update_game_message(interaction, embed, player_file, bot_file, community_file, view_to_use=self)
 
     @discord.ui.button(label="Showdown", style=discord.ButtonStyle.red, custom_id="holdem_showdown", disabled=True, row=1) # Moved to row 1
@@ -2166,8 +2169,9 @@ class TexasHoldEmGameView(discord.ui.View):
             await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
             return
         await interaction.response.defer()
-        embed, player_file, bot_file, community_file = await self.game._create_game_embed_with_images(reveal_opponent=True)
+        # End game buttons BEFORE updating the message
         self._end_game_buttons()
+        embed, player_file, bot_file, community_file = await self.game._create_game_embed_with_images(reveal_opponent=True)
         await self._update_game_message(interaction, embed, player_file, bot_file, community_file, view_to_use=self)
         # Fix: Changed self.game.channel.id to self.game.channel_id
         del active_texasholdem_games[self.game.channel_id] # Game ends after showdown
