@@ -5,31 +5,29 @@ import json
 import aiohttp
 import discord
 from discord.ext import commands
-from discord import app_commands # Import app_commands for slash commands
+from discord import app_commands
 
-# Import the helper function from the main bot file or a separate utilities file
-# Assuming you keep to_past_tense in bot.py for now, or move it to a `utils.py`
-from bot import to_past_tense # Adjust this import based on where you place to_past_tense
+# Import helper functions from the main bot file
+from bot import to_past_tense
 
 class General(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        # Create a subcommand group for /serene within this cog
-        # This needs to be done once per cog that uses a group.
-        # The parent group 'serene' is defined in bot.py
-        self.serene_group = app_commands.Group(name="serene", description="Commands for Serene Bot.")
-        self.bot.tree.add_command(self.serene_group)
+        # Get the existing 'serene' group from the bot's command tree
+        self.serene_group = self.bot.tree.get_command('serene')
+        if not self.serene_group:
+            # This should ideally not happen if bot.py defines it first
+            print("WARNING: 'serene' command group not found. Creating a new one.")
+            self.serene_group = app_commands.Group(name="serene", description="Commands for Serene Bot.")
+            self.bot.tree.add_command(self.serene_group)
 
-    # All commands must be methods of the Cog class
-    # Use @app_commands.command() for individual slash commands
-    # Use @self.serene_group.command() for commands within the /serene group
 
     @app_commands.command(name="ping", description="Responds with Pong!")
     async def ping(self, interaction: discord.Interaction):
         await interaction.response.send_message("Pong!", ephemeral=True)
 
     @app_commands.command(name="sync", description="Syncs slash commands (Admin only).")
-    @commands.is_owner() # Only bot owner can use this
+    @commands.is_owner()
     async def sync(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         try:
@@ -93,6 +91,7 @@ class General(commands.Cog):
 
         php_backend_url = "https://serenekeks.com/serene_bot.php"
         player_name = interaction.user.display_name
+
         text_to_send = "hail serene"
         param_name = "hail"
 
@@ -128,6 +127,7 @@ class General(commands.Cog):
 
         php_backend_url = "https://serenekeks.com/serene_bot.php"
         player_name = interaction.user.display_name
+
         text_to_send = "roast me"
         param_name = "roast"
 
@@ -316,5 +316,5 @@ class General(commands.Cog):
         await interaction.followup.send(display_message)
 
 async def setup(bot):
-    # This function is called when the cog is loaded
     await bot.add_cog(General(bot))
+
