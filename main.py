@@ -1730,7 +1730,7 @@ class BlackjackGameView(discord.ui.View):
             # The message reference (self.message and self.game.game_message) should already be correct
             # as we are editing the message that this view is already associated with.
             # Re-add the game to active_blackjack_games as it was removed when the game ended
-            active_blackjack_games[self.game.channel_id] = self
+            active_blackjack_games[self.game.channel.id] = self
         except discord.errors.NotFound:
             print("WARNING: Original game message not found during 'Play Again' edit.")
             await interaction.followup.send("Could not restart game. Please try `/serene game blackjack` again.", ephemeral=True)
@@ -2182,35 +2182,27 @@ class TexasHoldEmGame:
         # Community cards codes
         community_card_codes = [card['code'] for card in self.community_cards if 'code' in card]
         
-        # Only include the 'table' parameter if there are community cards
-        community_cards_param = f"&table={urllib.parse.quote_plus(','.join(community_card_codes))}" if community_card_codes else ""
-
         # Player's cards codes
         player_card_codes = [card['code'] for card in self.player_hole_cards if 'code' in card]
 
         # Serene's cards codes (hidden or revealed)
-        serene_display_card_codes = [card['code'] for card in self.bot_hole_cards if 'code' in card] if reveal_opponent else ["XX", "XX"]
+        # The PHP now handles 'XX' for face down, so we send actual codes and PHP will use faceDown=true for dealer.
+        # If reveal_opponent is True, we want to show Serene's cards, so we send their actual codes.
+        # If reveal_opponent is False, we still send actual codes, but PHP will render them face down.
+        serene_card_codes = [card['code'] for card in self.bot_hole_cards if 'code' in card]
         
-        # Construct the players JSON structure for the PHP backend
-        players_data = {
-            "dealer": {
-                "id": "serene",
-                "cards": serene_display_card_codes
-            },
-            "players": [
-                {
-                    "id": str(self.player.id), # Use player ID for uniqueness
-                    "cards": player_card_codes
-                }
-            ]
+        # Build the query parameters
+        params = {
+            "community": ','.join(community_card_codes),
+            "player": ','.join(player_card_codes),
+            "dealer": ','.join(serene_card_codes) # Send actual codes for dealer, PHP will handle face down
         }
-        players_json_param = json.dumps(players_data)
 
-        # URL-encode the players JSON
-        encoded_players_json = urllib.parse.quote_plus(players_json_param)
+        # URL-encode parameters
+        encoded_params = urllib.parse.urlencode(params)
 
         # Construct the final image URL
-        full_game_image_url = f"{self.game_data_url}?players={encoded_players_json}{community_cards_param}"
+        full_game_image_url = f"{self.game_data_url}?{encoded_params}"
         
         # Print the generated URL for debugging
         print(f"DEBUG: Generated Texas Hold 'em image URL: {full_game_image_url}")
