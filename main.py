@@ -2066,12 +2066,12 @@ class TexasHoldEmGameView(discord.ui.View):
         except discord.errors.NotFound:
             print("WARNING: Original game message not found during 'Play Again' edit for Hold 'em.")
             await interaction.followup.send("Could not restart game. Please try `/serene game texas_hold_em` again.", ephemeral=True)
-            if self.game.channel_id in active_texasholdem_games:
+            if self.game.channel.id in active_texasholdem_games:
                 del active_texasholdem_games[self.game.channel.id]
         except Exception as e:
             print(f"WARNING: An error occurred during 'Play Again' edit for Hold 'em: {e}")
             await interaction.followup.send("An error occurred while restarting the game.", ephemeral=True)
-            if self.game.channel_id in active_texasholdem_games:
+            if self.game.channel.id in active_texasholdem_games:
                 del active_texasholdem_games[self.game.channel.id]
 
 
@@ -2185,8 +2185,6 @@ class TexasHoldEmGame:
             value=f"{self.player_hole_cards[0]['title']}, {self.player_hole_cards[1]['title']}",
             inline=False
         )
-        if player_hand_url:
-            embed.set_image(url=player_hand_url) # Player's hand as main image
 
         # Serene's Hand (hidden until showdown)
         bot_card_codes = [card['code'] for card in self.bot_hole_cards if 'code' in card]
@@ -2199,8 +2197,6 @@ class TexasHoldEmGame:
             value=bot_hand_titles,
             inline=False
         )
-        if bot_hand_url:
-            embed.set_thumbnail(url=bot_hand_url) # Serene's hand as thumbnail
 
         # Community Cards
         community_card_codes = [card['code'] for card in self.community_cards if 'code' in card]
@@ -2212,10 +2208,19 @@ class TexasHoldEmGame:
             value=community_titles,
             inline=False
         )
+        
+        # New image placement logic:
+        # Community cards as main image (most prominent)
         if community_cards_url:
-            # Add a field for community cards with their image
-            embed.add_field(name="\u200b", value="\u200b", inline=False) # Empty field for spacing
-            embed.add_field(name="Board", value=f"[Community Cards Image]({community_cards_url})", inline=False) # Link to image
+            embed.set_image(url=community_cards_url)
+        
+        # Player's hand as thumbnail (second most prominent)
+        if player_hand_url:
+            embed.set_thumbnail(url=player_hand_url)
+
+        # Serene's hand as a link in a field, only if revealed
+        if reveal_opponent and bot_hand_url:
+            embed.add_field(name="Serene's Cards Image", value=f"[Serene's Cards]({bot_hand_url})", inline=False)
 
 
         embed.set_footer(text=f"Game Phase: {self.game_phase.replace('_', ' ').title()}")
