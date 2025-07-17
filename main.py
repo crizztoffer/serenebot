@@ -4,6 +4,7 @@ import urllib.parse
 import json
 import asyncio
 import re # Import the re module for regular expressions
+import io # Import io for in-memory file operations
 
 import discord
 from discord.ext import commands, tasks # Import tasks for hourly execution
@@ -11,6 +12,11 @@ from discord import app_commands, ui
 import aiohttp
 import aiomysql # Import aiomysql for asynchronous MySQL connection
 import aiomysql.cursors # Import for cursor type if needed, though default is fine for simple queries
+
+# Import necessary libraries for image processing
+from PIL import Image # Pillow library for image manipulation
+from svglib.svglib import svg2rlg # For converting SVG to ReportLab Drawing
+from reportlab.graphics import renderPM # For rendering ReportLab Drawing to PIL Image
 
 # Define intents
 intents = discord.Intents.default()
@@ -931,7 +937,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** �",
+                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -939,7 +945,7 @@ class TicTacToeView(discord.ui.View):
             elif self._check_draw():
                 await update_user_kekchipz(interaction.guild.id, interaction.user.id, 25) # Human player gets kekchipz for a draw
                 await interaction.edit_original_response(
-                    content="It's a **draw!** 🤝",
+                    content="It's a **draw!** �",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -1559,6 +1565,126 @@ async def story_command(interaction: discord.Interaction):
     await interaction.followup.send(display_message)
 
 
+# --- Image Generation Function (Moved from user input) ---
+async def create_card_combo_image(combo_str: str, scale_factor: float = 1.0, overlap_percent: float = 0.2) -> Image.Image:
+    """
+    Creates a combined image of playing cards from a comma-separated string of card codes.
+    Fetches SVG images from deckofcardsapi.com, converts them to PNG, and combines them.
+
+    Args:
+        combo_str (str): A comma-separated string of card codes (e.g., "AS,KD,TH").
+        scale_factor (float): Factor to scale the card images (e.g., 1.0 for original size).
+        overlap_percent (float): The percentage of card width that cards should overlap.
+
+    Returns:
+        PIL.Image.Image: A Pillow Image object containing the combined cards.
+
+    Raises:
+        ValueError: If no valid cards are provided.
+        Exception: If there's an error fetching or processing card images.
+    """
+    cards = [card.strip().upper() for card in combo_str.split(',') if card.strip()]
+
+    if not cards:
+        # For a hidden card, we can return a single "back" image or a placeholder
+        # Let's return a single back image if the combo_str was empty (e.g., for hidden dealer card)
+        if combo_str == "XX": # Special code for hidden card
+            svg_url = "https://deckofcardsapi.com/static/img/back.svg"
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(svg_url) as response:
+                        response.raise_for_status()
+                        drawing = svg2rlg(io.BytesIO(await response.read()))
+                        pil_image = renderPM.drawToPIL(drawing, bg=0xFFFFFF, fnRoot=None, configFlags=None,
+                                                       asPpm=0, dpi=300, transparent=1)
+                        if pil_image.mode != 'RGBA':
+                            pil_image = pil_image.convert('RGBA')
+                        scaled_width = int(pil_image.width * scale_factor)
+                        scaled_height = int(pil_image.height * scale_factor)
+                        if scaled_width != pil_image.width or scaled_height != pil_image.height:
+                            pil_image = pil_image.resize((scaled_width, scaled_height), Image.Resampling.LANCZOS)
+                        return pil_image
+            except Exception as e:
+                print(f"Error fetching/processing back card: {e}")
+                # Fallback to a simple placeholder if back card fails
+                return Image.new('RGBA', (100, 150), (0, 0, 0, 0)) # Transparent placeholder
+        
+        raise ValueError("No valid card codes provided in the combo string.")
+
+    card_images = []
+    first_card_width, first_card_height = None, None
+
+    for card in cards:
+        svg_url = f"https://deckofcardsapi.com/static/img/{card}.svg"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(svg_url) as response:
+                    response.raise_for_status()  # Raise an exception for HTTP errors (4xx or 5xx)
+
+                    # Read SVG data and render it to a ReportLab drawing
+                    drawing = svg2rlg(io.BytesIO(await response.read()))
+
+                    # Render the drawing to a Pillow Image
+                    # Ensure transparency is handled correctly
+                    pil_image = renderPM.drawToPIL(drawing, bg=0xFFFFFF, fnRoot=None, configFlags=None,
+                                                   asPpm=0, dpi=300, transparent=1)
+
+                    # Set background to transparent if it's not already
+                    if pil_image.mode != 'RGBA':
+                        pil_image = pil_image.convert('RGBA')
+
+                    # Get initial dimensions (from the first card, assuming all cards have similar aspect ratios)
+                    if first_card_width is None:
+                        first_card_width, first_card_height = pil_image.size
+
+                    # Scale the image
+                    scaled_width = int(first_card_width * scale_factor)
+                    scaled_height = int(first_card_height * scale_factor)
+
+                    # Resize the image if scaling is applied
+                    if scaled_width != pil_image.width or scaled_height != pil_image.height:
+                        pil_image = pil_image.resize((scaled_width, scaled_height), Image.Resampling.LANCZOS)
+
+                    card_images.append(pil_image)
+
+        except aiohttp.ClientError as e:
+            print(f"Failed to fetch SVG for card '{card}': {e}")
+            # Append a placeholder for failed cards to avoid breaking the layout
+            card_images.append(Image.new('RGBA', (int(first_card_width * scale_factor), int(first_card_height * scale_factor)), (255, 0, 0, 128))) # Red transparent placeholder
+        except Exception as e:
+            print(f"Error processing SVG for card '{card}': {e}")
+            card_images.append(Image.new('RGBA', (int(first_card_width * scale_factor), int(first_card_height * scale_factor)), (0, 255, 0, 128))) # Green transparent placeholder
+
+
+    # If no images were successfully loaded, return a generic placeholder
+    if not card_images:
+        return Image.new('RGBA', (200, 150), (0, 0, 0, 0)) # Fully transparent placeholder
+
+    # Calculate dimensions for the combined image
+    num_cards = len(card_images)
+    
+    # Calculate overlap based on scaled card width
+    overlap_px = int(card_images[0].width * overlap_percent)
+    
+    # Ensure overlap is not too large
+    if overlap_px >= card_images[0].width:
+        overlap_px = int(card_images[0].width * 0.1) # Default to 10% if overlap is too aggressive
+
+    combined_width = card_images[0].width + (num_cards - 1) * overlap_px
+    combined_height = card_images[0].height
+
+    # Create a new blank transparent image
+    combined_image = Image.new('RGBA', (combined_width, combined_height), (0, 0, 0, 0)) # RGBA for transparency
+
+    # Paste each card onto the combined image
+    x_offset = 0
+    for img in card_images:
+        combined_image.paste(img, (x_offset, 0), img) # Use img as mask for transparency
+        x_offset += overlap_px
+
+    return combined_image
+
+
 # --- New Blackjack Game UI Components ---
 
 class BlackjackGameView(discord.ui.View):
@@ -1570,17 +1696,10 @@ class BlackjackGameView(discord.ui.View):
         self.game = game # Reference to the BlackjackGame instance
         self.message = None # To store the message containing the game UI
 
-        # Buttons are now added via decorators below, so remove explicit add_item calls here
-        # self.add_item(discord.ui.Button(label="Hit", style=discord.ButtonStyle.green, custom_id="blackjack_hit"))
-        # self.add_item(discord.ui.Button(label="Stay", style=discord.ButtonStyle.red, custom_id="blackjack_stay"))
-
-    async def _update_game_message(self, interaction: discord.Interaction, embed: discord.Embed, view_to_use: discord.ui.View = None):
-        """Helper to update the main game message by editing the original response."""
+    async def _update_game_message(self, interaction: discord.Interaction, embed: discord.Embed, player_file: discord.File, dealer_file: discord.File, view_to_use: discord.ui.View = None):
+        """Helper to update the main game message by editing the original response, including image files."""
         try:
-            # For button interactions, the response is tied to the message the button is on.
-            # We must use edit_original_response after deferring.
-            await interaction.edit_original_response(embed=embed, view=view_to_use)
-            # After editing, self.message and self.game.game_message still point to the same object.
+            await interaction.edit_original_response(embed=embed, view=view_to_use, files=[player_file, dealer_file])
         except discord.errors.NotFound:
             print("WARNING: Original interaction message not found during edit, likely already deleted or inaccessible.")
         except Exception as e:
@@ -1640,18 +1759,18 @@ class BlackjackGameView(discord.ui.View):
         self.game.player_hand.append(self.game.deal_card())
         player_value = self.game.calculate_hand_value(self.game.player_hand)
 
+        embed, player_file, dealer_file = await self.game._create_game_embed_with_images() # Get embed and files
+
         if player_value > 21:
             # Player busts
-            final_embed = self.game._create_game_embed(reveal_dealer=True, result_message="BUST! Serene wins.")
+            embed.set_footer(text="BUST! Serene wins.")
             self._end_game_buttons() # Disable Hit/Stay, enable Play Again
-            await self._update_game_message(interaction, final_embed, view_to_use=self) # Update with new buttons
+            await self._update_game_message(interaction, embed, player_file, dealer_file, view_to_use=self) # Update with new buttons
             await update_user_kekchipz(interaction.guild.id, interaction.user.id, -50) # Player loses kekchipz
             del active_blackjack_games[self.game.channel_id] # Remove game from active games
-            # self.stop() # Removed self.stop() here
         else:
             # Player can hit again - send new message with updated embed
-            new_embed = self.game._create_game_embed()
-            await self._update_game_message(interaction, new_embed, view_to_use=self) # Keep buttons active
+            await self._update_game_message(interaction, embed, player_file, dealer_file, view_to_use=self) # Keep buttons active
 
     @discord.ui.button(label="Stay", style=discord.ButtonStyle.red, custom_id="blackjack_stay")
     async def stay_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1671,8 +1790,9 @@ class BlackjackGameView(discord.ui.View):
             self.game.dealer_hand.append(self.game.deal_card())
             serene_value = self.game.calculate_hand_value(self.game.dealer_hand)
             # Update display with new Serene card, revealing it
-            temp_embed = self.game._create_game_embed(reveal_dealer=True)
-            await self._update_game_message(interaction, temp_embed, view_to_use=self) # Keep buttons active during Serene's turn
+            # Need to get new files for each update during Serene's turn
+            embed, player_file, dealer_file = await self.game._create_game_embed_with_images(reveal_dealer=True)
+            await self._update_game_message(interaction, embed, player_file, dealer_file, view_to_use=self) # Keep buttons active during Serene's turn
             await asyncio.sleep(1) # Small delay for dramatic effect
 
         result_message = ""
@@ -1691,13 +1811,13 @@ class BlackjackGameView(discord.ui.View):
             result_message = "It's a push (tie)!"
             kekchipz_change = 0 # No change for a push
 
-        final_embed = self.game._create_game_embed(reveal_dealer=True, result_message=result_message)
+        embed, player_file, dealer_file = await self.game._create_game_embed_with_images(reveal_dealer=True)
+        embed.set_footer(text=result_message)
         self._end_game_buttons() # Disable Hit/Stay, enable Play Again
-        await self._update_game_message(interaction, final_embed, view_to_use=self) # Update with new buttons
+        await self._update_game_message(interaction, embed, player_file, dealer_file, view_to_use=self) # Update with new buttons
         await update_user_kekchipz(interaction.guild.id, interaction.user.id, kekchipz_change)
         
         del active_blackjack_games[self.game.channel_id] # Remove game from active games
-        # self.stop() # Removed self.stop() here
 
     @discord.ui.button(label="Play Again", style=discord.ButtonStyle.blurple, custom_id="blackjack_play_again", disabled=True)
     async def play_again_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1721,31 +1841,24 @@ class BlackjackGameView(discord.ui.View):
                 item.disabled = True # Disable play again until game ends
 
         # Create the initial embed for the new game state
-        initial_embed = self.game._create_game_embed()
+        embed, player_file, dealer_file = await self.game._create_game_embed_with_images()
 
         # Edit the original message with the new game state and re-enabled buttons
         try:
-            # Use 'self' as the view_to_use, since we are re-using this view instance
-            await interaction.edit_original_response(embed=initial_embed, view=self)
-            # The message reference (self.message and self.game.game_message) should already be correct
-            # as we are editing the message that this view is already associated with.
-            # Re-add the game to active_blackjack_games as it was removed when the game ended
-            active_blackjack_games[self.game.channel_id] = self
+            await interaction.edit_original_response(embed=embed, view=self, files=[player_file, dealer_file])
+            active_blackjack_games[self.game.channel.id] = self
         except discord.errors.NotFound:
             print("WARNING: Original game message not found during 'Play Again' edit.")
             await interaction.followup.send("Could not restart game. Please try `/serene game blackjack` again.", ephemeral=True)
             # Clean up if the message is gone
-            if self.game.channel.id in active_blackjack_games: # Use .channel.id here
-                del active_blackjack_games[self.game.channel.id]
+            if self.game.channel_id in active_blackjack_games:
+                del active_blackjack_games[self.game.channel_id]
         except Exception as e:
             print(f"WARNING: An error occurred during 'Play Again' edit: {e}")
             await interaction.followup.send("An error occurred while restarting the game.", ephemeral=True)
-            if self.game.channel.id in active_blackjack_games: # Use .channel.id here
-                del active_blackjack_games[self.game.channel.id]
+            if self.game.channel_id in active_blackjack_games:
+                del active_blackjack_games[self.game.channel_id]
         
-        # Do NOT call self.stop() here, as the view needs to remain active for the new game.
-        # The timeout will handle inactivity.
-
 
 class BlackjackGame:
     """
@@ -1759,7 +1872,7 @@ class BlackjackGame:
         self.player_hand = []
         self.dealer_hand = [] # This will be Serene's hand
         self.game_message = None # To store the message containing the game UI
-        self.game_data_url = "https://serenekeks.com/serene_bot_games.php"
+        # self.game_data_url = "https://serenekeks.com/serene_bot_games.php" # No longer needed
         self.game_over = False # New flag to track if the game has ended
 
     def _create_standard_deck(self) -> list[dict]:
@@ -1830,69 +1943,69 @@ class BlackjackGame:
             num_aces -= 1
         return value
 
-    def _create_game_embed(self, reveal_dealer: bool = False, result_message: str = None) -> discord.Embed:
+    async def _create_game_embed_with_images(self, reveal_dealer: bool = False) -> tuple[discord.Embed, discord.File, discord.File]:
         """
-        Creates and returns a Discord Embed object representing the current game state.
+        Creates and returns a Discord Embed object and Discord.File objects
+        representing the current game state with combined card images.
         :param reveal_dealer: If True, reveals Serene's hidden card.
-        :param result_message: An optional message to display as the game result.
-        :return: A discord.Embed object.
+        :return: A tuple of (discord.Embed, player_image_file, dealer_image_file).
         """
         player_value = self.calculate_hand_value(self.player_hand)
-        serene_value = self.calculate_hand_value(self.dealer_hand) # Renamed dealer_value to serene_value
+        serene_value = self.calculate_hand_value(self.dealer_hand)
 
-        # Construct the combo string for the player's hand images
+        # Generate player's hand image
         player_card_codes = [card['code'] for card in self.player_hand if 'code' in card]
-        player_combo_url = f"{self.game_data_url}?combo={','.join(player_card_codes)}" if player_card_codes else ""
+        player_image_pil = await create_card_combo_image(','.join(player_card_codes), scale_factor=0.8, overlap_percent=0.4)
+        player_image_bytes = io.BytesIO()
+        player_image_pil.save(player_image_bytes, format='PNG')
+        player_image_bytes.seek(0) # Rewind to the beginning of the BytesIO object
+        player_file = discord.File(player_image_bytes, filename="player_hand.png")
 
-        # Construct the combo string for Serene's hand images
-        serene_display_cards = []
-        if reveal_dealer: # If revealing, show all cards
-            serene_display_cards = [card['code'] for card in self.dealer_hand if 'code' in card]
+        # Generate Serene's hand image
+        serene_display_cards_codes = []
+        if reveal_dealer:
+            serene_display_cards_codes = [card['code'] for card in self.dealer_hand if 'code' in card]
         else:
-            # Only show the first card (the PHP backend will automatically add a 'back' for the hidden card)
+            # Only show the first card and a back card
             if self.dealer_hand and 'code' in self.dealer_hand[0]:
-                serene_display_cards.append(self.dealer_hand[0]['code'])
+                serene_display_cards_codes.append(self.dealer_hand[0]['code'])
+            serene_display_cards_codes.append("XX") # Placeholder for back of card
 
-        serene_combo_url = f"{self.game_data_url}?combo={','.join(serene_display_cards)}" if serene_display_cards else ""
+        serene_image_pil = await create_card_combo_image(','.join(serene_display_cards_codes), scale_factor=0.8, overlap_percent=0.4)
+        serene_image_bytes = io.BytesIO()
+        serene_image_pil.save(serene_image_bytes, format='PNG')
+        serene_image_bytes.seek(0)
+        dealer_file = discord.File(serene_image_bytes, filename="serene_hand.png")
 
         # Create an embed for the game display
         embed = discord.Embed(
             title="Blackjack Game",
-            description=f"**{self.player.display_name} vs. Serene**", # Changed "Dealer" to "Serene"
+            description=f"**{self.player.display_name} vs. Serene**",
             color=discord.Color.dark_green()
         )
 
-        # Add player's hand details (only value, not individual cards in text)
         embed.add_field(
-            name=f"{self.player.display_name}'s Hand", # Removed "(Value: {player_value})" from name
-            value=f"Value: {player_value}", # Moved value to the value field
+            name=f"{self.player.display_name}'s Hand",
+            value=f"Value: {player_value}",
             inline=False
         )
 
-        # Add Serene's hand details
         serene_hand_value_str = f"{serene_value}" if reveal_dealer else f"{self.calculate_hand_value([self.dealer_hand[0]])} + ?"
         serene_hand_titles = ', '.join([card['title'] for card in self.dealer_hand]) if reveal_dealer else f"{self.dealer_hand[0]['title']}, [Hidden Card]"
         
         embed.add_field(
-            name=f"Serene's Hand (Value: {serene_hand_value_str})", # Changed "Dealer" to "Serene"
+            name=f"Serene's Hand (Value: {serene_hand_value_str})",
             value=serene_hand_titles,
             inline=False
         )
 
-        # Set the main image of the embed to the combined player hand image
-        if player_combo_url:
-            embed.set_image(url=player_combo_url)
+        # Reference the attachments in the embed
+        embed.set_image(url="attachment://player_hand.png")
+        embed.set_thumbnail(url="attachment://serene_hand.png")
         
-        # Set the thumbnail of the embed to the combined Serene hand image
-        if serene_combo_url:
-            embed.set_thumbnail(url=serene_combo_url)
+        embed.set_footer(text="What would you like to do? (Hit or Stand)")
         
-        if result_message:
-            embed.set_footer(text=result_message)
-        else:
-            embed.set_footer(text="What would you like to do? (Hit or Stand)")
-        
-        return embed
+        return embed, player_file, dealer_file
 
     def reset_game(self):
         """Resets the game state for a new round."""
@@ -1917,12 +2030,11 @@ class BlackjackGame:
         # Create the view for the game
         game_view = BlackjackGameView(game=self)
         
-        # Create the initial embed
-        initial_embed = self._create_game_embed()
+        # Create the initial embed and get image files
+        initial_embed, player_file, dealer_file = await self._create_game_embed_with_images()
 
         # Send the message as a follow-up to the deferred slash command interaction
-        # This will be used when the game is started via /serene game blackjack
-        self.game_message = await interaction.followup.send(embed=initial_embed, view=game_view)
+        self.game_message = await interaction.followup.send(embed=initial_embed, view=game_view, files=[player_file, dealer_file])
         game_view.message = self.game_message # Store message in the view for updates
         
         active_blackjack_games[self.channel_id] = game_view # Store the view instance, not the game itself
@@ -1940,10 +2052,13 @@ class TexasHoldEmGameView(discord.ui.View):
         self.message = None # To store the message containing the game UI
         # Buttons are now added via decorators below, so _add_initial_buttons() is removed.
 
-    async def _update_game_message(self, interaction: discord.Interaction, embed: discord.Embed, view_to_use: discord.ui.View = None):
-        """Helper to update the main game message by editing the original response."""
+    async def _update_game_message(self, interaction: discord.Interaction, embed: discord.Embed, player_file: discord.File, bot_file: discord.File, community_file: discord.File, view_to_use: discord.ui.View = None):
+        """Helper to update the main game message by editing the original response, including image files."""
         try:
-            await interaction.edit_original_response(embed=embed, view=view_to_use)
+            files_to_send = [player_file, bot_file]
+            if community_file: # Only add if there are community cards
+                files_to_send.append(community_file)
+            await interaction.edit_original_response(embed=embed, view=view_to_use, files=files_to_send)
         except discord.errors.NotFound:
             print("WARNING: Original interaction message not found during edit, likely already deleted or inaccessible.")
         except Exception as e:
@@ -2005,9 +2120,9 @@ class TexasHoldEmGameView(discord.ui.View):
             return
         await interaction.response.defer()
         self.game.deal_flop()
-        new_embed = self.game._create_game_embed()
+        embed, player_file, bot_file, community_file = await self.game._create_game_embed_with_images()
         self._enable_next_phase_button("flop")
-        await self._update_game_message(interaction, new_embed, view_to_use=self)
+        await self._update_game_message(interaction, embed, player_file, bot_file, community_file, view_to_use=self)
 
     @discord.ui.button(label="Deal Turn", style=discord.ButtonStyle.primary, custom_id="holdem_turn", disabled=True, row=0)
     async def deal_turn_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2016,9 +2131,9 @@ class TexasHoldEmGameView(discord.ui.View):
             return
         await interaction.response.defer()
         self.game.deal_turn()
-        new_embed = self.game._create_game_embed()
+        embed, player_file, bot_file, community_file = await self.game._create_game_embed_with_images()
         self._enable_next_phase_button("turn")
-        await self._update_game_message(interaction, new_embed, view_to_use=self)
+        await self._update_game_message(interaction, embed, player_file, bot_file, community_file, view_to_use=self)
 
     @discord.ui.button(label="Deal River", style=discord.ButtonStyle.primary, custom_id="holdem_river", disabled=True, row=0)
     async def deal_river_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2027,9 +2142,9 @@ class TexasHoldEmGameView(discord.ui.View):
             return
         await interaction.response.defer()
         self.game.deal_river()
-        new_embed = self.game._create_game_embed()
+        embed, player_file, bot_file, community_file = await self.game._create_game_embed_with_images()
         self._enable_next_phase_button("river")
-        await self._update_game_message(interaction, new_embed, view_to_use=self)
+        await self._update_game_message(interaction, embed, player_file, bot_file, community_file, view_to_use=self)
 
     @discord.ui.button(label="Showdown", style=discord.ButtonStyle.red, custom_id="holdem_showdown", disabled=True, row=1) # Moved to row 1
     async def showdown_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2037,9 +2152,9 @@ class TexasHoldEmGameView(discord.ui.View):
             await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
             return
         await interaction.response.defer()
-        final_embed = self.game._create_game_embed(reveal_opponent=True)
+        embed, player_file, bot_file, community_file = await self.game._create_game_embed_with_images(reveal_opponent=True)
         self._end_game_buttons()
-        await self._update_game_message(interaction, final_embed, view_to_use=self)
+        await self._update_game_message(interaction, embed, player_file, bot_file, community_file, view_to_use=self)
         del active_texasholdem_games[self.game.channel_id] # Game ends after showdown
         self.stop() # Stop the view after game ends
 
@@ -2060,9 +2175,9 @@ class TexasHoldEmGameView(discord.ui.View):
             elif item.custom_id in ["holdem_turn", "holdem_river", "holdem_showdown", "holdem_play_again"]:
                 item.disabled = True
         
-        initial_embed = self.game._create_game_embed()
+        embed, player_file, bot_file, community_file = await self.game._create_game_embed_with_images()
         try:
-            await interaction.edit_original_response(embed=initial_embed, view=self)
+            await interaction.edit_original_response(embed=embed, view=self, files=[player_file, bot_file, community_file])
             active_texasholdem_games[self.game.channel.id] = self
         except discord.errors.NotFound:
             print("WARNING: Original game message not found during 'Play Again' edit for Hold 'em.")
@@ -2090,7 +2205,7 @@ class TexasHoldEmGame:
         self.bot_hole_cards = []
         self.community_cards = []
         self.game_message = None # To store the message containing the game UI
-        self.game_data_url = "https://serenekeks.com/serene_bot_games.php"
+        # self.game_data_url = "https://serenekeks.com/serene_bot_games.php" # No longer needed
         self.game_phase = "pre_flop" # pre_flop, flop, turn, river, showdown
 
     def _create_standard_deck(self) -> list[dict]:
@@ -2166,11 +2281,12 @@ class TexasHoldEmGame:
         self.community_cards = []
         self.game_phase = "pre_flop" # Reset phase
 
-    def _create_game_embed(self, reveal_opponent: bool = False) -> discord.Embed:
+    async def _create_game_embed_with_images(self, reveal_opponent: bool = False) -> tuple[discord.Embed, discord.File, discord.File, discord.File]:
         """
-        Creates and returns a Discord Embed object representing the current game state.
+        Creates and returns a Discord Embed object and Discord.File objects
+        representing the current Texas Hold 'em game state with combined card images.
         :param reveal_opponent: If True, reveals the bot's hole cards.
-        :return: A discord.Embed object.
+        :return: A tuple of (discord.Embed, player_image_file, bot_image_file, community_image_file).
         """
         embed = discord.Embed(
             title="Texas Hold 'em Poker",
@@ -2178,49 +2294,52 @@ class TexasHoldEmGame:
             color=discord.Color.dark_blue()
         )
         
-        # Prepare data for the combined image URL
-        # Community cards codes
-        community_card_codes = [card['code'] for card in self.community_cards if 'code' in card]
-        
-        # Only include the 'table' parameter if there are community cards
-        community_cards_param = f"&table={urllib.parse.quote_plus(','.join(community_card_codes))}" if community_card_codes else ""
-
-        # Player's cards codes
+        # Player's cards
         player_card_codes = [card['code'] for card in self.player_hole_cards if 'code' in card]
+        player_image_pil = await create_card_combo_image(','.join(player_card_codes), scale_factor=0.8, overlap_percent=0.4)
+        player_image_bytes = io.BytesIO()
+        player_image_pil.save(player_image_bytes, format='PNG')
+        player_image_bytes.seek(0)
+        player_file = discord.File(player_image_bytes, filename="player_hole_cards.png")
 
-        # Serene's cards codes (hidden or revealed)
-        serene_display_card_codes = [card['code'] for card in self.bot_hole_cards if 'code' in card] if reveal_opponent else ["XX", "XX"]
-        
-        # Construct the players JSON structure for the PHP backend
-        players_data = {
-            "dealer": {
-                "id": "serene",
-                "cards": serene_display_card_codes
-            },
-            "players": [
-                {
-                    "id": str(self.player.id), # Use player ID for uniqueness
-                    "cards": player_card_codes
-                }
-            ]
-        }
-        players_json_param = json.dumps(players_data)
+        # Bot's cards (hidden or revealed)
+        bot_display_card_codes = [card['code'] for card in self.bot_hole_cards if 'code' in card] if reveal_opponent else ["XX", "XX"]
+        bot_image_pil = await create_card_combo_image(','.join(bot_display_card_codes), scale_factor=0.8, overlap_percent=0.4)
+        bot_image_bytes = io.BytesIO()
+        bot_image_pil.save(bot_image_bytes, format='PNG')
+        bot_image_bytes.seek(0)
+        bot_file = discord.File(bot_image_bytes, filename="bot_hole_cards.png")
 
-        # URL-encode the players JSON
-        encoded_players_json = urllib.parse.quote_plus(players_json_param)
+        # Community cards
+        community_card_codes = [card['code'] for card in self.community_cards if 'code' in card]
+        community_file = None
+        if community_card_codes:
+            community_image_pil = await create_card_combo_image(','.join(community_card_codes), scale_factor=0.8, overlap_percent=0.4)
+            community_image_bytes = io.BytesIO()
+            community_image_pil.save(community_image_bytes, format='PNG')
+            community_image_bytes.seek(0)
+            community_file = discord.File(community_image_bytes, filename="community_cards.png")
 
-        # Construct the final image URL
-        full_game_image_url = f"{self.game_data_url}?players={encoded_players_json}{community_cards_param}"
-        
-        # Print the generated URL for debugging
-        print(f"DEBUG: Generated Texas Hold 'em image URL: {full_game_image_url}")
+        # Set images in embed
+        embed.add_field(name=f"{self.player.display_name}'s Hand", value="Your hole cards", inline=False)
+        embed.set_image(url="attachment://player_hole_cards.png") # Main image for player's hand
 
-        # Set the main image of the embed to the combined image
-        embed.set_image(url=full_game_image_url)
+        embed.add_field(name="Serene's Hand", value="Bot's hole cards", inline=False)
+        embed.set_thumbnail(url="attachment://bot_hole_cards.png") # Thumbnail for bot's hand
+
+        if community_file:
+            embed.add_field(name="Community Cards", value="The board", inline=False)
+            # You can add another image field if Discord supports it, or combine into main image
+            # For simplicity, let's just use the main image and thumbnail for hands,
+            # and perhaps describe community cards in text or use a different embed field for their image.
+            # For now, we'll just attach it and rely on Discord's display.
+            # If a third image is needed in the embed, it would require a custom layout or a single combined image.
+            # For now, we'll just attach it and Discord will display it below the embed.
+            pass # No direct embed field for community cards image for now, just attached.
 
         embed.set_footer(text=f"Game Phase: {self.game_phase.replace('_', ' ').title()}")
         
-        return embed
+        return embed, player_file, bot_file, community_file
 
     async def start_game(self, interaction: discord.Interaction):
         """
@@ -2231,9 +2350,13 @@ class TexasHoldEmGame:
         self.deal_hole_cards() # Deal initial 2 cards to player and bot
 
         game_view = TexasHoldEmGameView(game=self)
-        initial_embed = self._create_game_embed()
+        initial_embed, player_file, bot_file, community_file = await self._create_game_embed_with_images()
 
-        self.game_message = await interaction.followup.send(embed=initial_embed, view=game_view)
+        files_to_send = [player_file, bot_file]
+        if community_file:
+            files_to_send.append(community_file)
+
+        self.game_message = await interaction.followup.send(embed=initial_embed, view=game_view, files=files_to_send)
         game_view.message = self.game_message
         active_texasholdem_games[self.channel_id] = game_view
         game_view._enable_next_phase_button("pre_flop") # Enable the first button
