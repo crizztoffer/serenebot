@@ -142,5 +142,5 @@ async def setup(bot):
     cog = GamesMain(bot)
     await bot.add_cog(cog)
     # Explicitly add the game command to the serene_group
-    serene_group.add_command(app_commands.Command(cog.game_command_impl, name="game", description="Start a fun game with Serene!"))
+    serene_group.add_command(app_commands.Command(callback=cog.game_command_impl, name="game", description="Start a fun game with Serene!"))
 
