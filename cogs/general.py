@@ -13,14 +13,12 @@ from bot import to_past_tense
 class General(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        # Get the existing 'serene' group from the bot's command tree
+        # Retrieve the existing 'serene' group from the bot's command tree.
+        # It is defined and added in bot.py, so we just get a reference here.
         self.serene_group = self.bot.tree.get_command('serene')
         if not self.serene_group:
-            # This should ideally not happen if bot.py defines it first
-            print("WARNING: 'serene' command group not found. Creating a new one.")
-            self.serene_group = app_commands.Group(name="serene", description="Commands for Serene Bot.")
-            self.bot.tree.add_command(self.serene_group)
-
+            # This indicates a critical setup error in bot.py if this happens.
+            raise RuntimeError("The 'serene' command group was not found. Ensure it's defined in bot.py before loading cogs.")
 
     @app_commands.command(name="ping", description="Responds with Pong!")
     async def ping(self, interaction: discord.Interaction):
