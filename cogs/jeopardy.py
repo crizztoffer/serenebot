@@ -59,7 +59,7 @@ class Jeopardy(commands.Cog):
             for cat_data in categories_to_search:
                 if cat_data["category"] == self.category_name:
                     for q_data in cat_data["questions"]:
-                        if q_data["value"] == selected_value and not q["guessed"]: # Corrected: q["guessed"] instead of q_data["guessed"]
+                        if q_data["value"] == selected_value and not q_data["guessed"]: # Corrected: q_data["guessed"]
                             question_data = q_data
                             break
                     if question_data:
@@ -280,7 +280,7 @@ class Jeopardy(commands.Cog):
                                 "We hope to see you in Final Jeopardy very soon!"
                             )
                             if game.channel_id in active_jeopardy_games:
-                                del active_jeopardy_games[game.channel.id]
+                                del active_jeopardy_games[game.channel_id]
                             view.stop()
                             return
 
@@ -380,8 +380,6 @@ class Jeopardy(commands.Cog):
                             except Exception as e:
                                 print(f"Error waiting for Final Jeopardy answer: {e}")
                                 await interaction.channel.send("An unexpected error occurred while waiting for your Final Jeopardy answer.")
-                        else:
-                            await interaction.channel.send("Could not load Final Jeopardy question data.")
                         
                         await interaction.channel.send(
                             f"Final Score for {game.player.display_name}: **{'-' if game.score < 0 else ''}${abs(game.score)}**.\n"
@@ -391,7 +389,7 @@ class Jeopardy(commands.Cog):
                             await update_user_kekchipz(interaction.guild.id, interaction.user.id, game.score)
 
                         if game.channel.id in active_jeopardy_games:
-                            del active_jeopardy_games[game.channel.id]
+                            del active_jeopardy_games[game.channel_id]
                         view.stop()
                         return
 
