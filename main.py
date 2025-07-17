@@ -2012,7 +2012,8 @@ class TexasHoldEmGameView(discord.ui.View):
             item.disabled = True
         
         # Update the message to reflect the disabled buttons BEFORE image loading
-        await self._update_game_message(interaction, self.message.embed, view_to_use=self) # Use current embed
+        # Corrected: Use self.message.embeds[0] instead of self.message.embed
+        await self._update_game_message(interaction, self.message.embeds[0], view_to_use=self) 
 
         # Perform game logic
         self.game.deal_flop()
@@ -2036,7 +2037,8 @@ class TexasHoldEmGameView(discord.ui.View):
             item.disabled = True
         
         # Update the message to reflect the disabled buttons BEFORE image loading
-        await self._update_game_message(interaction, self.message.embed, view_to_use=self) # Use current embed
+        # Corrected: Use self.message.embeds[0] instead of self.message.embed
+        await self._update_game_message(interaction, self.message.embeds[0], view_to_use=self) 
 
         self.game.deal_turn()
         new_embed = await self.game._create_game_embed() # Await the embed creation
@@ -2055,7 +2057,8 @@ class TexasHoldEmGameView(discord.ui.View):
             item.disabled = True
         
         # Update the message to reflect the disabled buttons BEFORE image loading
-        await self._update_game_message(interaction, self.message.embed, view_to_use=self) # Use current embed
+        # Corrected: Use self.message.embeds[0] instead of self.message.embed
+        await self._update_game_message(interaction, self.message.embeds[0], view_to_use=self) 
 
         self.game.deal_river()
         new_embed = await self.game._create_game_embed() # Await the embed creation
@@ -2074,7 +2077,8 @@ class TexasHoldEmGameView(discord.ui.View):
             item.disabled = True
         
         # Update the message to reflect the disabled buttons BEFORE image loading
-        await self._update_game_message(interaction, self.message.embed, view_to_use=self) # Use current embed
+        # Corrected: Use self.message.embeds[0] instead of self.message.embed
+        await self._update_game_message(interaction, self.message.embeds[0], view_to_use=self) 
 
         final_embed = await self.game._create_game_embed(reveal_opponent=True) # Await the embed creation
         self._end_game_buttons()
