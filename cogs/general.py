@@ -314,4 +314,3 @@ async def setup(bot):
     serene_group.add_command(app_commands.Command(callback=cog.hail_command_impl, name="hail", description="Hail Serene!"))
     serene_group.add_command(app_commands.Command(callback=cog.roast_command_impl, name="roast", description="Get roasted by Serene!"))
     serene_group.add_command(app_commands.Command(callback=cog.story_command_impl, name="story", description="Generate a story with contextually appropriate nouns and verbs."))
-
