@@ -15,8 +15,7 @@ import aiomysql.cursors # Import for cursor type if needed, though default is fi
 
 # Import necessary libraries for image processing
 from PIL import Image # Pillow library for image manipulation
-from svglib.svglib import svg2rlg # For converting SVG to ReportLab Drawing
-from reportlab.graphics import renderPM # For rendering ReportLab Drawing to PIL Image
+# Removed svglib and reportlab.graphics.renderPM as they are no longer needed for PNG fetching
 
 # Define intents
 intents = discord.Intents.default()
@@ -945,7 +944,7 @@ class TicTacToeView(discord.ui.View):
             elif self._check_draw():
                 await update_user_kekchipz(interaction.guild.id, interaction.user.id, 25) # Human player gets kekchipz for a draw
                 await interaction.edit_original_response(
-                    content="It's a **draw!** �",
+                    content="It's a **draw!** 🤝",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -1565,14 +1564,15 @@ async def story_command(interaction: discord.Interaction):
     await interaction.followup.send(display_message)
 
 
-# --- Image Generation Function (Moved from user input) ---
+# --- Image Generation Function ---
 async def create_card_combo_image(combo_str: str, scale_factor: float = 1.0, overlap_percent: float = 0.2) -> Image.Image:
     """
     Creates a combined image of playing cards from a comma-separated string of card codes.
-    Fetches SVG images from deckofcardsapi.com, converts them to PNG, and combines them.
+    Fetches PNG images from deckofcardsapi.com and combines them using Pillow.
 
     Args:
         combo_str (str): A comma-separated string of card codes (e.g., "AS,KD,TH").
+                         "XX" can be used for a hidden card (back of card).
         scale_factor (float): Factor to scale the card images (e.g., 1.0 for original size).
         overlap_percent (float): The percentage of card width that cards should overlap.
 
@@ -1580,64 +1580,64 @@ async def create_card_combo_image(combo_str: str, scale_factor: float = 1.0, ove
         PIL.Image.Image: A Pillow Image object containing the combined cards.
 
     Raises:
-        ValueError: If no valid cards are provided.
-        Exception: If there's an error fetching or processing card images.
+        ValueError: If no valid card codes are provided and it's not a special "XX" case.
     """
     cards = [card.strip().upper() for card in combo_str.split(',') if card.strip()]
 
+    # Define a default size for cards in case the first fetch fails
+    default_card_width, default_card_height = 73, 98 # Standard playing card dimensions in pixels (approx)
+
     if not cards:
-        # For a hidden card, we can return a single "back" image or a placeholder
-        # Let's return a single back image if the combo_str was empty (e.g., for hidden dealer card)
         if combo_str == "XX": # Special code for hidden card
-            svg_url = "https://deckofcardsapi.com/static/img/back.svg"
+            png_url = "https://deckofcardsapi.com/static/img/back.png" # Use back.png directly
             try:
                 async with aiohttp.ClientSession() as session:
-                    async with session.get(svg_url) as response:
+                    async with session.get(png_url) as response:
                         response.raise_for_status()
-                        drawing = svg2rlg(io.BytesIO(await response.read()))
-                        pil_image = renderPM.drawToPIL(drawing, bg=0xFFFFFF, fnRoot=None, configFlags=None,
-                                                       asPpm=0, dpi=300, transparent=1)
+                        pil_image = Image.open(io.BytesIO(await response.read()))
+                        
                         if pil_image.mode != 'RGBA':
                             pil_image = pil_image.convert('RGBA')
+                        
                         scaled_width = int(pil_image.width * scale_factor)
                         scaled_height = int(pil_image.height * scale_factor)
                         if scaled_width != pil_image.width or scaled_height != pil_image.height:
                             pil_image = pil_image.resize((scaled_width, scaled_height), Image.Resampling.LANCZOS)
                         return pil_image
             except Exception as e:
-                print(f"Error fetching/processing back card: {e}")
-                # Fallback to a simple placeholder if back card fails
-                return Image.new('RGBA', (100, 150), (0, 0, 0, 0)) # Transparent placeholder
+                print(f"Error fetching/processing back card PNG: {e}")
+                # Fallback to a simple transparent placeholder if back card fails
+                return Image.new('RGBA', (default_card_width, default_card_height), (0, 0, 0, 0))
         
         raise ValueError("No valid card codes provided in the combo string.")
 
     card_images = []
     first_card_width, first_card_height = None, None
 
-    for card in cards:
-        svg_url = f"https://deckofcardsapi.com/static/img/{card}.svg"
+    for i, card in enumerate(cards):
+        # Use .png extension directly
+        png_url = f"https://deckofcardsapi.com/static/img/{card}.png"
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(svg_url) as response:
+                async with session.get(png_url) as response:
                     response.raise_for_status()  # Raise an exception for HTTP errors (4xx or 5xx)
 
-                    # Read SVG data and render it to a ReportLab drawing
-                    drawing = svg2rlg(io.BytesIO(await response.read()))
-
-                    # Render the drawing to a Pillow Image
-                    # Ensure transparency is handled correctly
-                    pil_image = renderPM.drawToPIL(drawing, bg=0xFFFFFF, fnRoot=None, configFlags=None,
-                                                   asPpm=0, dpi=300, transparent=1)
+                    # Open the image directly using Pillow
+                    pil_image = Image.open(io.BytesIO(await response.read()))
 
                     # Set background to transparent if it's not already
                     if pil_image.mode != 'RGBA':
                         pil_image = pil_image.convert('RGBA')
 
-                    # Get initial dimensions (from the first card, assuming all cards have similar aspect ratios)
+                    # Get initial dimensions from the first successfully loaded card
                     if first_card_width is None:
                         first_card_width, first_card_height = pil_image.size
+                        # If this is the first card, set defaults if not already
+                        if first_card_width is None:
+                            first_card_width = default_card_width
+                            first_card_height = default_card_height
 
-                    # Scale the image
+                    # Scale the image based on the first card's dimensions
                     scaled_width = int(first_card_width * scale_factor)
                     scaled_height = int(first_card_height * scale_factor)
 
@@ -1648,30 +1648,40 @@ async def create_card_combo_image(combo_str: str, scale_factor: float = 1.0, ove
                     card_images.append(pil_image)
 
         except aiohttp.ClientError as e:
-            print(f"Failed to fetch SVG for card '{card}': {e}")
+            print(f"Failed to fetch PNG for card '{card}': {e}")
+            # If the first card fails, ensure default dimensions are set
+            if first_card_width is None:
+                first_card_width = default_card_width
+                first_card_height = default_card_height
             # Append a placeholder for failed cards to avoid breaking the layout
             card_images.append(Image.new('RGBA', (int(first_card_width * scale_factor), int(first_card_height * scale_factor)), (255, 0, 0, 128))) # Red transparent placeholder
         except Exception as e:
-            print(f"Error processing SVG for card '{card}': {e}")
+            print(f"Error processing PNG for card '{card}': {e}")
+            # If the first card fails, ensure default dimensions are set
+            if first_card_width is None:
+                first_card_width = default_card_width
+                first_card_height = default_card_height
             card_images.append(Image.new('RGBA', (int(first_card_width * scale_factor), int(first_card_height * scale_factor)), (0, 255, 0, 128))) # Green transparent placeholder
 
 
-    # If no images were successfully loaded, return a generic placeholder
+    # If no images were successfully loaded at all, return a generic transparent placeholder
     if not card_images:
-        return Image.new('RGBA', (200, 150), (0, 0, 0, 0)) # Fully transparent placeholder
+        return Image.new('RGBA', (default_card_width, default_card_height), (0, 0, 0, 0))
 
     # Calculate dimensions for the combined image
     num_cards = len(card_images)
     
     # Calculate overlap based on scaled card width
-    overlap_px = int(card_images[0].width * overlap_percent)
+    # Use the width of the first successfully loaded card, or default if none
+    base_card_width = card_images[0].width if card_images else default_card_width
+    overlap_px = int(base_card_width * overlap_percent)
     
     # Ensure overlap is not too large
-    if overlap_px >= card_images[0].width:
-        overlap_px = int(card_images[0].width * 0.1) # Default to 10% if overlap is too aggressive
+    if overlap_px >= base_card_width:
+        overlap_px = int(base_card_width * 0.1) # Default to 10% if overlap is too aggressive
 
-    combined_width = card_images[0].width + (num_cards - 1) * overlap_px
-    combined_height = card_images[0].height
+    combined_width = base_card_width + (num_cards - 1) * overlap_px
+    combined_height = card_images[0].height if card_images else default_card_height
 
     # Create a new blank transparent image
     combined_image = Image.new('RGBA', (combined_width, combined_height), (0, 0, 0, 0)) # RGBA for transparency
@@ -1851,13 +1861,13 @@ class BlackjackGameView(discord.ui.View):
             print("WARNING: Original game message not found during 'Play Again' edit.")
             await interaction.followup.send("Could not restart game. Please try `/serene game blackjack` again.", ephemeral=True)
             # Clean up if the message is gone
-            if self.game.channel_id in active_blackjack_games:
-                del active_blackjack_games[self.game.channel_id]
+            if self.game.channel.id in active_blackjack_games:
+                del active_blackjack_games[self.game.channel.id]
         except Exception as e:
             print(f"WARNING: An error occurred during 'Play Again' edit: {e}")
             await interaction.followup.send("An error occurred while restarting the game.", ephemeral=True)
-            if self.game.channel_id in active_blackjack_games:
-                del active_blackjack_games[self.game.channel_id]
+            if self.game.channel.id in active_blackjack_games:
+                del active_blackjack_games[self.game.channel.id]
         
 
 class BlackjackGame:
