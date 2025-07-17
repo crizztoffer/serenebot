@@ -59,7 +59,7 @@ class Jeopardy(commands.Cog):
             for cat_data in categories_to_search:
                 if cat_data["category"] == self.category_name:
                     for q_data in cat_data["questions"]:
-                        if q_data["value"] == selected_value and not q_data["guessed"]:
+                        if q_data["value"] == selected_value and not q["guessed"]: # Corrected: q["guessed"] instead of q_data["guessed"]
                             question_data = q_data
                             break
                     if question_data:
