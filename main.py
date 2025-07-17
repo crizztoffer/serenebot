@@ -1087,6 +1087,48 @@ async def update_user_kekchipz(guild_id: int, discord_id: int, amount: int):
         if conn:
             conn.close()
 
+async def get_user_kekchipz(guild_id: int, discord_id: int) -> int:
+    """
+    Fetches the kekchipz balance for a user from the database.
+    Returns 0 if the user is not found or an error occurs.
+    """
+    db_user = os.getenv('DB_USER')
+    db_password = os.getenv('DB_PASSWORD')
+    db_host = os.getenv('DB_HOST')
+    db_name = "serene_users"
+    table_name = "discord_users"
+
+    if not all([db_user, db_password, db_host]):
+        print("Database operation failed: Missing one or more environment variables (DB_USER, DB_PASSWORD, DB_HOST).")
+        return 0
+
+    conn = None
+    try:
+        conn = await aiomysql.connect(
+            host=db_host,
+            user=db_user,
+            password=db_password,
+            db=db_name,
+            charset='utf8mb4',
+            autocommit=True
+        )
+        async with conn.cursor() as cursor:
+            await cursor.execute(
+                f"SELECT kekchipz FROM {table_name} WHERE channel_id = %s AND discord_id = %s",
+                (str(guild_id), str(discord_id))
+            )
+            result = await cursor.fetchone()
+            return result[0] if result else 0
+    except aiomysql.Error as e:
+        print(f"Database fetch failed for user {discord_id}: MySQL Error: {e}")
+        return 0
+    except Exception as e:
+        print(f"Database fetch failed for user {discord_id}): An unexpected error occurred: {e}")
+        return 0
+    finally:
+        if conn:
+            conn.close()
+
 
 # --- Bot Events ---
 @bot.event
@@ -1938,6 +1980,9 @@ class BlackjackGame:
         player_value = self.calculate_hand_value(self.player_hand)
         serene_value = self.calculate_hand_value(self.dealer_hand)
 
+        # Fetch player's kekchipz
+        player_kekchipz = await get_user_kekchipz(self.player.guild.id, self.player.id)
+
         # Generate player's hand image
         player_card_codes = [card['code'] for card in self.player_hand if 'code' in card]
         player_image_pil = await create_card_combo_image(','.join(player_card_codes), scale_factor=0.8, overlap_percent=0.4)
@@ -1965,7 +2010,8 @@ class BlackjackGame:
         # Create an embed for the game display
         embed = discord.Embed(
             title="Blackjack Game",
-            description=f"**{self.player.display_name} vs. Serene**",
+            description=f"**{self.player.display_name} vs. Serene**\n\n"
+                        f"**{self.player.display_name}'s Kekchipz:** ${player_kekchipz}", # Display kekchipz here
             color=discord.Color.dark_green()
         )
 
