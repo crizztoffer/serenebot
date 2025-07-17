@@ -8,12 +8,11 @@ from bot import (
     active_tictactoe_games,
     active_jeopardy_games,
     active_blackjack_games,
-    active_texasholdem_games
+    active_texasholdem_games,
+    serene_group # Import serene_group here
 )
 
 # Import game classes from their respective cogs
-# These imports will work because bot.py loads these cogs first.
-# We need to import the cog module itself to access its nested classes.
 import cogs.tictactoe
 import cogs.jeopardy
 import cogs.blackjack
@@ -22,14 +21,9 @@ import cogs.texasholdem
 class GamesMain(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        # Retrieve the existing 'serene' group from the bot's command tree.
-        # It is defined and added in bot.py, so we just get a reference here.
-        self.serene_group = self.bot.tree.get_command('serene')
-        if not self.serene_group:
-            # This indicates a critical setup error in bot.py if this happens.
-            raise RuntimeError("The 'serene' command group was not found. Ensure it's defined in bot.py before loading cogs.")
 
-    @self.serene_group.command(name="game", description="Start a fun game with Serene!")
+    # Define the command that *will be added* to the serene_group.
+    # This is now a regular method or app_commands.Command object.
     @app_commands.choices(game_type=[
         app_commands.Choice(name="Tic-Tac-Toe", value="tic_tac_toe"),
         app_commands.Choice(name="Jeopardy", value="jeopardy"),
@@ -37,7 +31,7 @@ class GamesMain(commands.Cog):
         app_commands.Choice(name="Texas Hold 'em", value="texas_hold_em"),
     ])
     @app_commands.describe(game_type="The type of game to play.")
-    async def game_command(self, interaction: discord.Interaction, game_type: str):
+    async def game_command_impl(self, interaction: discord.Interaction, game_type: str):
         """
         Handles the /serene game slash command.
         Starts the selected game by instantiating the relevant game class.
@@ -145,5 +139,8 @@ class GamesMain(commands.Cog):
             )
 
 async def setup(bot):
-    await bot.add_cog(GamesMain(bot))
+    cog = GamesMain(bot)
+    await bot.add_cog(cog)
+    # Explicitly add the game command to the serene_group
+    serene_group.add_command(app_commands.Command(cog.game_command_impl, name="game", description="Start a fun game with Serene!"))
 
