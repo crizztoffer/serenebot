@@ -310,8 +310,8 @@ async def setup(bot):
     cog = General(bot)
     await bot.add_cog(cog)
     # Explicitly add commands to the serene_group after the cog is loaded
-    serene_group.add_command(app_commands.Command(cog.talk_command_impl, name="talk", description="Talk to Serene."))
-    serene_group.add_command(app_commands.Command(cog.hail_command_impl, name="hail", description="All hail the goddess, Serene!"))
-    serene_group.add_command(app_commands.Command(cog.roast_command_impl, name="roast", description="Get roasted by Serene!"))
-    serene_group.add_command(app_commands.Command(cog.story_command_impl, name="story", description="Hear a burtated story from Serene."))
+    serene_group.add_command(app_commands.Command(callback=cog.talk_command_impl, name="talk", description="Interact with the Serene bot backend."))
+    serene_group.add_command(app_commands.Command(callback=cog.hail_command_impl, name="hail", description="Hail Serene!"))
+    serene_group.add_command(app_commands.Command(callback=cog.roast_command_impl, name="roast", description="Get roasted by Serene!"))
+    serene_group.add_command(app_commands.Command(callback=cog.story_command_impl, name="story", description="Generate a story with contextually appropriate nouns and verbs."))
 
