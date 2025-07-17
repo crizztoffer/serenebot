@@ -382,7 +382,7 @@ class CategoryValueSelect(discord.ui.Select):
                             "We hope to see you in Final Jeopardy very soon!"
                         )
                         if game.channel_id in active_jeopardy_games:
-                            del active_jeopardy_games[game.channel.id]
+                            del active_jeopardy_games[game.channel_id]
                         view.stop() # Stop the current view's timeout
                         return # End the game here
 
@@ -499,8 +499,8 @@ class CategoryValueSelect(discord.ui.Select):
                     if game.score > 0:
                         await update_user_kekchipz(interaction.guild.id, interaction.user.id, game.score)
 
-                    if game.channel.id in active_jeopardy_games:
-                        del active_jeopardy_games[game.channel.id]
+                    if game.channel_id in active_jeopardy_games:
+                        del active_jeopardy_games[game.channel_id]
                     view.stop() # Stop the current view's timeout
                     return # Exit if Final Jeopardy is reached, as no more dropdowns are needed
 
@@ -1846,19 +1846,23 @@ class BlackjackGameView(discord.ui.View):
 
         # Edit the original message with the new game state and re-enabled buttons
         try:
-            await interaction.edit_original_response(embed=embed, view=self, files=[player_file, dealer_file])
-            active_blackjack_games[self.game.channel.id] = self
+            # Fix: Changed 'files' to 'attachments'
+            await interaction.edit_original_response(embed=embed, view=self, attachments=[player_file, dealer_file])
+            # Fix: Changed self.game.channel.id to self.game.channel_id
+            active_blackjack_games[self.game.channel_id] = self
         except discord.errors.NotFound:
             print("WARNING: Original game message not found during 'Play Again' edit.")
             await interaction.followup.send("Could not restart game. Please try `/serene game blackjack` again.", ephemeral=True)
             # Clean up if the message is gone
-            if self.game.channel.id in active_blackjack_games:
-                del active_blackjack_games[self.game.channel.id]
+            # Fix: Changed self.game.channel.id to self.game.channel_id
+            if self.game.channel_id in active_blackjack_games:
+                del active_blackjack_games[self.game.channel_id]
         except Exception as e:
             print(f"WARNING: An error occurred during 'Play Again' edit: {e}")
             await interaction.followup.send("An error occurred while restarting the game.", ephemeral=True)
-            if self.game.channel.id in active_blackjack_games:
-                del active_blackjack_games[self.game.channel.id]
+            # Fix: Changed self.game.channel.id to self.game.channel_id
+            if self.game.channel_id in active_blackjack_games:
+                del active_blackjack_games[self.game.channel_id]
         
 
 class BlackjackGame:
@@ -2118,6 +2122,7 @@ class TexasHoldEmGameView(discord.ui.View):
                 print("WARNING: Game message not found during timeout, likely already deleted.")
             except Exception as e:
                 print(f"WARNING: An error occurred editing game message on timeout: {e}")
+        # Fix: Changed self.game.channel.id to self.game.channel_id
         if self.game.channel_id in active_texasholdem_games:
             pass # Keep for Play Again functionality
         print(f"Texas Hold 'em game in channel {self.game.channel_id} timed out.")
@@ -2164,6 +2169,7 @@ class TexasHoldEmGameView(discord.ui.View):
         embed, player_file, bot_file, community_file = await self.game._create_game_embed_with_images(reveal_opponent=True)
         self._end_game_buttons()
         await self._update_game_message(interaction, embed, player_file, bot_file, community_file, view_to_use=self)
+        # Fix: Changed self.game.channel.id to self.game.channel_id
         del active_texasholdem_games[self.game.channel_id] # Game ends after showdown
         self.stop() # Stop the view after game ends
 
@@ -2186,18 +2192,22 @@ class TexasHoldEmGameView(discord.ui.View):
         
         embed, player_file, bot_file, community_file = await self.game._create_game_embed_with_images()
         try:
-            await interaction.edit_original_response(embed=embed, view=self, files=[player_file, bot_file, community_file])
-            active_texasholdem_games[self.game.channel.id] = self
+            # Fix: Changed 'files' to 'attachments'
+            await interaction.edit_original_response(embed=embed, view=self, attachments=[player_file, bot_file, community_file])
+            # Fix: Changed self.game.channel.id to self.game.channel_id
+            active_texasholdem_games[self.game.channel_id] = self
         except discord.errors.NotFound:
             print("WARNING: Original game message not found during 'Play Again' edit for Hold 'em.")
             await interaction.followup.send("Could not restart game. Please try `/serene game texas_hold_em` again.", ephemeral=True)
-            if self.game.channel.id in active_texasholdem_games:
-                del active_texasholdem_games[self.game.channel.id]
+            # Fix: Changed self.game.channel.id to self.game.channel_id
+            if self.game.channel_id in active_texasholdem_games:
+                del active_texasholdem_games[self.game.channel_id]
         except Exception as e:
             print(f"WARNING: An error occurred during 'Play Again' edit for Hold 'em: {e}")
             await interaction.followup.send("An error occurred while restarting the game.", ephemeral=True)
-            if self.game.channel.id in active_texasholdem_games:
-                del active_texasholdem_games[self.game.channel.id]
+            # Fix: Changed self.game.channel.id to self.game.channel_id
+            if self.game.channel_id in active_texasholdem_games:
+                del active_texasholdem_games[self.game.channel_id]
 
 
 class TexasHoldEmGame:
