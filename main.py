@@ -1201,7 +1201,7 @@ def to_past_tense(verb):
         "break": "broke", "choose": "chose", "drive": "drove", "fall": "fell", "fly": "flew",
         "forget": "forgot", "hold": "held", "read": "read", "ride": "rode", "speak": "spoke",
         "stand": "stood", "steal": "stole", "strike": "struck", "write": "wrote",
-        "burst": "burst", "hit": "hit", "cut": "cut", "cost": "cost", "let": "let",
+        "burst": "burst", "hit": "hit", "cut": "cut", "cut", "cost": "cost", "let": "let",
         "shut": "shut", "spread": "spread",
         # Explicitly added from PHP's $forth array to ensure correct past tense handling
         "shit": "shit", # "shit out a turd"
@@ -1778,6 +1778,9 @@ class BlackjackGame:
             '6': 'Six', '7': 'Seven', '8': 'Eight', '9': 'Nine', 'T': 'Ten',
             'J': 'Jack', 'Q': 'Queen', 'K': 'King'
         }
+        suit_titles = {
+            'S': 'Spades', 'D': 'Diamonds', 'C': 'Clubs', 'H': 'Hearts'
+        }
 
         deck = []
         for code in card_codes:
@@ -1921,21 +1924,6 @@ class BlackjackGame:
         player_value = self.calculate_hand_value(self.player_hand)
         serene_value = self.calculate_hand_value(self.dealer_hand) # Renamed dealer_value to serene_value
 
-        # Construct the combo string for the player's hand images
-        player_card_codes = [card['code'] for card in self.player_hand if 'code' in card]
-        player_combo_url = f"{self.game_data_url}?combo={','.join(player_card_codes)}" if player_card_codes else ""
-
-        # Construct the combo string for Serene's hand images
-        serene_display_cards = []
-        if reveal_dealer: # If revealing, show all cards
-            serene_display_cards = [card['code'] for card in self.dealer_hand if 'code' in card]
-        else:
-            # Only show the first card (the PHP backend will automatically add a 'back' for the hidden card)
-            if self.dealer_hand and 'code' in self.dealer_hand[0]:
-                serene_display_cards.append(self.dealer_hand[0]['code'])
-
-        serene_combo_url = f"{self.game_data_url}?combo={','.join(serene_display_cards)}" if serene_display_cards else ""
-
         # Create an embed for the game display
         embed = discord.Embed(
             title="Blackjack Game",
@@ -1959,14 +1947,6 @@ class BlackjackGame:
             value=serene_hand_titles,
             inline=False
         )
-
-        # Set the main image of the embed to the combined player hand image
-        if player_combo_url:
-            embed.set_image(url=player_combo_url)
-        
-        # Set the thumbnail of the embed to the combined Serene hand image
-        if serene_combo_url:
-            embed.set_thumbnail(url=serene_combo_url)
         
         if result_message:
             embed.set_footer(text=result_message)
@@ -1999,6 +1979,30 @@ class BlackjackGame:
         # Create the initial embed
         initial_embed = self._create_game_embed()
 
+        # Construct the combo string for the player's hand images
+        player_card_codes = [card['code'] for card in self.player_hand if 'code' in card]
+        player_combo_url = f"{self.game_data_url}?combo={','.join(player_card_codes)}" if player_card_codes else ""
+
+        # Construct the combo string for Serene's hand images
+        serene_display_cards = []
+        # Only show the first card (the PHP backend will automatically add a 'back' for the hidden card)
+        if self.dealer_hand and 'code' in self.dealer_hand[0]:
+            serene_display_cards.append(self.dealer_hand[0]['code'])
+        serene_combo_url = f"{self.game_data_url}?combo={','.join(serene_display_cards)}" if serene_display_cards else ""
+        
+        # Add cache buster to image URLs
+        cache_buster = int(time.time() * 1000)
+        player_combo_url += f"&_cb={cache_buster}"
+        serene_combo_url += f"&_cb={cache_buster}"
+
+        # Set the main image of the embed to the combined player hand image
+        if player_combo_url:
+            initial_embed.set_image(url=player_combo_url)
+        
+        # Set the thumbnail of the embed to the combined Serene hand image
+        if serene_combo_url:
+            initial_embed.set_thumbnail(url=serene_combo_url)
+
         # Send the message as a follow-up to the deferred slash command interaction
         # This will be used when the game is started via /serene game blackjack
         self.game_message = await interaction.followup.send(embed=initial_embed, view=game_view)
@@ -2019,14 +2023,18 @@ class TexasHoldEmGameView(discord.ui.View):
         self.message = None # To store the message containing the game UI
         # Buttons are now added via decorators below, so _add_initial_buttons() is removed.
 
-    async def _update_game_message(self, interaction: discord.Interaction, embed: discord.Embed, view_to_use: discord.ui.View = None):
-        """Helper to update the main game message by editing the original response."""
+    async def _update_game_message(self, interaction: discord.Interaction, embed: discord.Embed, image_bytes: bytes, image_filename: str, view_to_use: discord.ui.View = None):
+        """
+        Helper to update the main game message by editing the original response,
+        including a new image as a file attachment.
+        """
         try:
-            await interaction.edit_original_response(embed=embed, view=view_to_use)
+            file = discord.File(image_bytes, filename=image_filename)
+            await interaction.edit_original_response(embed=embed, files=[file], view=view_to_use)
         except discord.errors.NotFound:
             print("WARNING: Original interaction message not found during edit, likely already deleted or inaccessible.")
         except Exception as e:
-            print(f"WARNING: An error occurred editing original interaction response: {e}")
+            print(f"WARNING: An error occurred editing original interaction response with image: {e}")
 
     def _enable_next_phase_button(self, current_phase: str):
         """Enables the button for the next phase of the game."""
@@ -2068,7 +2076,9 @@ class TexasHoldEmGameView(discord.ui.View):
                     if item.custom_id == "holdem_play_again":
                         item.disabled = False
                         break
-                await self.message.edit(content="Texas Hold 'em game timed out due to inactivity. Click 'Play Again' to start a new game.", view=self, embed=self.message.embed)
+                # When timeout, we don't have new image bytes, so we can't send a new file.
+                # Just update the text and view.
+                await self.message.edit(content="Texas Hold 'em game timed out due to inactivity. Click 'Play Again' to start a new game.", view=self)
             except discord.errors.NotFound:
                 print("WARNING: Game message not found during timeout, likely already deleted.")
             except Exception as e:
@@ -2090,18 +2100,28 @@ class TexasHoldEmGameView(discord.ui.View):
             item.disabled = True
         
         # Update the message to reflect the disabled buttons BEFORE image loading
-        # Corrected: Use self.message.embeds[0] instead of self.message.embed
-        await self._update_game_message(interaction, self.message.embeds[0], view_to_use=self) 
+        # We need to get the current embed from the message to edit it.
+        current_embed = self.message.embeds[0] if self.message and self.message.embeds else None
+        if current_embed:
+            await interaction.edit_original_response(embed=current_embed, view=self) 
+        else:
+            await interaction.edit_original_response(content="Processing...", view=self)
+
 
         # Perform game logic
         self.game.deal_flop()
-        new_embed = await self.game._create_game_embed() # This takes time
+        
+        # Fetch the new image data
+        image_bytes, image_filename = await self.game._fetch_game_image()
+        
+        # Create the new embed (textual parts only)
+        new_embed = self.game._create_game_embed()
 
         # After game logic and image loading, enable the next appropriate button
         self._enable_next_phase_button("flop") # This will re-enable the 'Deal Turn' button
 
         # Update the message again with the new embed and the newly enabled button
-        await self._update_game_message(interaction, new_embed, view_to_use=self)
+        await self._update_game_message(interaction, new_embed, image_bytes, image_filename, view_to_use=self)
 
     @discord.ui.button(label="Deal Turn", style=discord.ButtonStyle.primary, custom_id="holdem_turn", disabled=True, row=0)
     async def deal_turn_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2114,14 +2134,17 @@ class TexasHoldEmGameView(discord.ui.View):
         for item in self.children:
             item.disabled = True
         
-        # Update the message to reflect the disabled buttons BEFORE image loading
-        # Corrected: Use self.message.embeds[0] instead of self.message.embed
-        await self._update_game_message(interaction, self.message.embeds[0], view_to_use=self) 
+        current_embed = self.message.embeds[0] if self.message and self.message.embeds else None
+        if current_embed:
+            await interaction.edit_original_response(embed=current_embed, view=self) 
+        else:
+            await interaction.edit_original_response(content="Processing...", view=self)
 
         self.game.deal_turn()
-        new_embed = await self.game._create_game_embed() # Await the embed creation
+        image_bytes, image_filename = await self.game._fetch_game_image()
+        new_embed = self.game._create_game_embed() # Await the embed creation
         self._enable_next_phase_button("turn")
-        await self._update_game_message(interaction, new_embed, view_to_use=self)
+        await self._update_game_message(interaction, new_embed, image_bytes, image_filename, view_to_use=self)
 
     @discord.ui.button(label="Deal River", style=discord.ButtonStyle.primary, custom_id="holdem_river", disabled=True, row=0)
     async def deal_river_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2134,14 +2157,17 @@ class TexasHoldEmGameView(discord.ui.View):
         for item in self.children:
             item.disabled = True
         
-        # Update the message to reflect the disabled buttons BEFORE image loading
-        # Corrected: Use self.message.embeds[0] instead of self.message.embed
-        await self._update_game_message(interaction, self.message.embeds[0], view_to_use=self) 
+        current_embed = self.message.embeds[0] if self.message and self.message.embeds else None
+        if current_embed:
+            await interaction.edit_original_response(embed=current_embed, view=self) 
+        else:
+            await interaction.edit_original_response(content="Processing...", view=self)
 
         self.game.deal_river()
-        new_embed = await self.game._create_game_embed() # Await the embed creation
+        image_bytes, image_filename = await self.game._fetch_game_image()
+        new_embed = self.game._create_game_embed() # Await the embed creation
         self._enable_next_phase_button("river")
-        await self._update_game_message(interaction, new_embed, view_to_use=self)
+        await self._update_game_message(interaction, new_embed, image_bytes, image_filename, view_to_use=self)
 
     @discord.ui.button(label="Showdown", style=discord.ButtonStyle.red, custom_id="holdem_showdown", disabled=True, row=1) # Moved to row 1
     async def showdown_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2154,13 +2180,16 @@ class TexasHoldEmGameView(discord.ui.View):
         for item in self.children:
             item.disabled = True
         
-        # Update the message to reflect the disabled buttons BEFORE image loading
-        # Corrected: Use self.message.embeds[0] instead of self.message.embed
-        await self._update_game_message(interaction, self.message.embeds[0], view_to_use=self) 
+        current_embed = self.message.embeds[0] if self.message and self.message.embeds else None
+        if current_embed:
+            await interaction.edit_original_response(embed=current_embed, view=self) 
+        else:
+            await interaction.edit_original_response(content="Processing...", view=self)
 
-        final_embed = await self.game._create_game_embed(reveal_opponent=True) # Await the embed creation
+        image_bytes, image_filename = await self.game._fetch_game_image(reveal_opponent=True)
+        final_embed = self.game._create_game_embed(reveal_opponent=True) # Await the embed creation
         self._end_game_buttons()
-        await self._update_game_message(interaction, final_embed, view_to_use=self)
+        await self._update_game_message(interaction, final_embed, image_bytes, image_filename, view_to_use=self)
         del active_texasholdem_games[self.game.channel_id] # Game ends after showdown
         self.stop() # Stop the view after game ends
 
@@ -2181,9 +2210,10 @@ class TexasHoldEmGameView(discord.ui.View):
             elif item.custom_id in ["holdem_turn", "holdem_river", "holdem_showdown", "holdem_play_again"]:
                 item.disabled = True
         
-        initial_embed = await self.game._create_game_embed() # Await the embed creation
+        image_bytes, image_filename = await self.game._fetch_game_image()
+        initial_embed = self.game._create_game_embed() # Await the embed creation
         try:
-            await interaction.edit_original_response(embed=initial_embed, view=self)
+            await self._update_game_message(interaction, initial_embed, image_bytes, image_filename, view_to_use=self)
             active_texasholdem_games[self.game.channel.id] = self
         except discord.errors.NotFound:
             print("WARNING: Original game message not found during 'Play Again' edit for Hold 'em.")
@@ -2369,11 +2399,59 @@ class TexasHoldEmGame:
         self.community_cards = []
         self.game_phase = "pre_flop" # Reset phase
 
-    async def _create_game_embed(self, reveal_opponent: bool = False) -> discord.Embed:
+    async def _fetch_game_image(self, reveal_opponent: bool = False) -> tuple[bytes, str]:
         """
-        Creates and returns a Discord Embed object representing the current game state.
-        :param reveal_opponent: If True, reveals the bot's hole cards.
-        :return: A discord.Embed object.
+        Fetches the game state image as raw bytes from the PHP backend.
+        Returns (image_bytes, filename) or (None, None) on failure.
+        """
+        community_card_codes = [card['code'] for card in self.community_cards if 'code' in card]
+        player_card_codes = [card['code'] for card in self.player_hole_cards if 'code' in card]
+
+        if reveal_opponent:
+            dealer_card_codes = [card['code'] for card in self.bot_hole_cards if 'code' in card]
+        else:
+            dealer_card_codes = ["XX", "XX"] # Send 'XX' for hidden cards
+
+        game_state_data = {
+            "community": community_card_codes,
+            "player": player_card_codes,
+            "dealer": dealer_card_codes
+        }
+        game_state_json = json.dumps(game_state_data)
+        encoded_game_state = urllib.parse.quote_plus(game_state_json)
+        cache_buster = int(time.time() * 1000)
+        full_game_image_url = f"{self.game_data_url}?game_data={encoded_game_state}&_cb={cache_buster}"
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(full_game_image_url, timeout=15) as response:
+                    if response.status == 200 and response.content_type.startswith('image/'):
+                        image_bytes = await response.read()
+                        # Infer filename from content type, default to .png
+                        ext = response.content_type.split('/')[-1] if '/' in response.content_type else 'png'
+                        filename = f"holdem_board.{ext}"
+                        print(f"DEBUG: Texas Hold 'em image fetched successfully ({len(image_bytes)} bytes).")
+                        return image_bytes, filename
+                    else:
+                        status_info = f"Status: {response.status}"
+                        if not response.content_type.startswith('image/'):
+                            status_info += f", Content-Type: {response.content_type}"
+                        print(f"ERROR: Failed to fetch Texas Hold 'em image. URL: {full_game_image_url}, {status_info}")
+                        return None, None
+        except aiohttp.ClientError as e:
+            print(f"ERROR: Network error fetching Texas Hold 'em image: {e}. URL: {full_game_image_url}")
+            return None, None
+        except asyncio.TimeoutError:
+            print(f"ERROR: Timeout fetching Texas Hold 'em image. URL: {full_game_image_url}")
+            return None, None
+        except Exception as e:
+            print(f"ERROR: Unexpected error fetching Texas Hold 'em image: {e}. URL: {full_game_image_url}")
+            return None, None
+
+    def _create_game_embed(self, reveal_opponent: bool = False) -> discord.Embed:
+        """
+        Creates and returns a Discord Embed object representing the current game state,
+        without setting the image URL directly. The image will be sent as a file attachment.
         """
         embed = discord.Embed(
             title="Texas Hold 'em Poker",
@@ -2381,63 +2459,8 @@ class TexasHoldEmGame:
             color=discord.Color.dark_blue()
         )
         
-        # Get card codes for all hands
-        community_card_codes = [card['code'] for card in self.community_cards if 'code' in card]
-        player_card_codes = [card['code'] for card in self.player_hole_cards if 'code' in card]
-
-        # Determine dealer's cards based on reveal_opponent flag
-        if reveal_opponent:
-            dealer_card_codes = [card['code'] for card in self.bot_hole_cards if 'code' in card]
-        else:
-            dealer_card_codes = ["XX", "XX"] # Send 'XX' for hidden cards
-
-        # Construct the game state data as a dictionary
-        game_state_data = {
-            "community": community_card_codes,
-            "player": player_card_codes,
-            "dealer": dealer_card_codes
-        }
-
-        # Serialize the dictionary to a JSON string
-        game_state_json = json.dumps(game_state_data)
-
-        # URL-encode the JSON string
-        encoded_game_state = urllib.parse.quote_plus(game_state_json)
-
-        # Add a cache-busting timestamp to the URL
-        cache_buster = int(time.time() * 1000) # Milliseconds since epoch
-        full_game_image_url = f"{self.game_data_url}?game_data={encoded_game_state}&_cb={cache_buster}"
-        
-        # Add a small initial delay before the first attempt to allow backend to process if needed
-        await asyncio.sleep(0.5)
-
-        try:
-            async with aiohttp.ClientSession() as session:
-                # Use GET request to actually fetch content and check content type
-                async with session.get(full_game_image_url, timeout=15) as response: 
-                    if response.status == 200 and response.content_type.startswith('image/'):
-                        embed.set_image(url=full_game_image_url)
-                        print(f"DEBUG: Texas Hold 'em image loaded successfully.")
-                    else:
-                        status_info = f"Status: {response.status}"
-                        if not response.content_type.startswith('image/'):
-                            status_info += f", Content-Type: {response.content_type}"
-                        embed.set_footer(text=f"Game Phase: {self.game_phase.replace('_', ' ').title()} | Note: Card images failed to load ({status_info}). Please try again later.")
-                        print(f"ERROR: Failed to load Texas Hold 'em image. URL: {full_game_image_url}")
-                        return embed # Return early on failure to avoid setting default footer
-        except aiohttp.ClientError as e:
-            embed.set_footer(text=f"Game Phase: {self.game_phase.replace('_', ' ').title()} | Note: Network error loading card images: {e}. Please try again later.")
-            print(f"ERROR: Network error loading Texas Hold 'em image: {e}. URL: {full_game_image_url}")
-            return embed # Return early on failure
-        except asyncio.TimeoutError:
-            embed.set_footer(text=f"Game Phase: {self.game_phase.replace('_', ' ').title()} | Note: Timeout loading card images. Please try again later.")
-            print(f"ERROR: Timeout loading Texas Hold 'em image. URL: {full_game_image_url}")
-            return embed # Return early on failure
-        except Exception as e:
-            embed.set_footer(text=f"Game Phase: {self.game_phase.replace('_', ' ').title()} | Note: Unexpected error loading card images: {e}. Please try again later.")
-            print(f"ERROR: Unexpected error loading Texas Hold 'em image: {e}. URL: {full_game_image_url}")
-            return embed # Return early on failure
-
+        # You can add text fields here if needed, e.g., current phase, player actions etc.
+        # For now, just the footer will indicate the phase.
         embed.set_footer(text=f"Game Phase: {self.game_phase.replace('_', ' ').title()}")
         
         return embed
@@ -2451,9 +2474,21 @@ class TexasHoldEmGame:
         self.deal_hole_cards() # Deal initial 2 cards to player and bot
 
         game_view = TexasHoldEmGameView(game=self)
-        initial_embed = await self._create_game_embed() # Await the embed creation
+        initial_embed = self._create_game_embed() # Create embed (textual part)
 
-        self.game_message = await interaction.followup.send(embed=initial_embed, view=game_view)
+        # Fetch the initial image
+        image_bytes, image_filename = await self._fetch_game_image()
+
+        if image_bytes and image_filename:
+            file = discord.File(image_bytes, filename=image_filename)
+            self.game_message = await interaction.followup.send(embed=initial_embed, files=[file], view=game_view)
+        else:
+            self.game_message = await interaction.followup.send(
+                embed=initial_embed.set_footer(text=f"Game Phase: {self.game_phase.replace('_', ' ').title()} | Error: Could not load card images."),
+                view=game_view
+            )
+            print("WARNING: Could not send initial Texas Hold 'em image due to fetch failure.")
+
         game_view.message = self.game_message
         active_texasholdem_games[self.channel_id] = game_view
         game_view._enable_next_phase_button("pre_flop") # Enable the first button
