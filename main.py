@@ -740,7 +740,7 @@ class TicTacToeButton(discord.ui.Button):
                 await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
             await interaction.edit_original_response(
-                content=f"🎉 **{winner_player.display_name} wins!** �",
+                content=f"🎉 **{winner_player.display_name} wins!** 🎉",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -1340,6 +1340,7 @@ async def hail_command(interaction: discord.Interaction):
         await interaction.followup.send(
             f"An unexpected error occurred: {e}"
         )
+
 
 @serene_group.command(name="roast", description="Get roasted by Serene!")
 async def roast_command(interaction: discord.Interaction):
@@ -2210,6 +2211,9 @@ class TexasHoldEmGame:
         # Construct the final image URL
         full_game_image_url = f"{self.game_data_url}?table={encoded_community_cards}&players={encoded_players_json}"
         
+        # Print the generated URL for debugging
+        print(f"DEBUG: Generated Texas Hold 'em image URL: {full_game_image_url}")
+
         # Set the main image of the embed to the combined image
         embed.set_image(url=full_game_image_url)
 
