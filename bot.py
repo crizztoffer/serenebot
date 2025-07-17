@@ -233,13 +233,11 @@ async def on_ready():
         await bot.load_extension("cogs.blackjack")
         await bot.load_extension("cogs.texasholdem")
 
-        # After all cogs are loaded, attempt to clear and then sync commands.
-        # This is a robust way to handle CommandSignatureMismatch on startup.
-        print("Attempting to clear existing global commands before syncing...")
-        # Reverting to guild=None as it is required.
-        await bot.tree.clear_commands(guild=None) # Clear global commands
-        synced = await bot.tree.sync(guild=None) # Sync global commands
-        print(f"Cleared and Synced {len(synced)} slash commands globally.")
+        # After all cogs are loaded, sync commands.
+        # This will update existing commands and add new ones.
+        print("Attempting to sync slash commands globally...")
+        synced = await bot.tree.sync() # Sync global commands
+        print(f"Synced {len(synced)} slash commands globally.")
         
     except Exception as e:
         print(f"Failed to sync commands or load cogs: {e}")
