@@ -323,5 +323,6 @@ BOT_TOKEN = os.getenv('BOT_TOKEN')
 if BOT_TOKEN is None:
     print("Error: BOT_TOKEN environment variable not set.")
 else:
-    bot.run(BOT_TOKEN)
-
+    # This ensures bot.run() is only called when bot.py is executed directly.
+    if __name__ == "__main__":
+        bot.run(BOT_TOKEN)
