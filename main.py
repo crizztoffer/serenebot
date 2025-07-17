@@ -749,7 +749,7 @@ class TicTacToeButton(discord.ui.Button):
         elif view._check_draw():
             await update_user_kekchipz(interaction.guild.id, interaction.user.id, 25) # Human player gets kekchipz for a draw
             await interaction.edit_original_response(
-                content="It's a **draw!** 🤝",
+                content="It's a **draw!** �",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -1462,7 +1462,7 @@ async def story_command(interaction: discord.Interaction):
         - "pissed so loudly that they [verb_past_tense]"
         - "took a cock so big that they [verb_past_tense]"
         - "put their thing down, flipped it, and reversed it so perfectly, that they [verb_past_tense]"
-        - "waffle-spanked a vagrant so hard that they [verb_past_tense]"
+        "waffle-spanked a vagrant so hard that they [verb_past_tense]"
         "kissed Crizz P."
         "spun around so fast that they [verb_past_tense]"
         "vomitted so loudly that they [verb_past_tense]"
@@ -2005,6 +2005,7 @@ class TexasHoldEmGameView(discord.ui.View):
             await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
             return
         await interaction.response.defer()
+        button.disabled = True # Disable the button immediately
         self.game.deal_flop()
         new_embed = await self.game._create_game_embed() # Await the embed creation
         self._enable_next_phase_button("flop")
@@ -2016,6 +2017,7 @@ class TexasHoldEmGameView(discord.ui.View):
             await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
             return
         await interaction.response.defer()
+        button.disabled = True # Disable the button immediately
         self.game.deal_turn()
         new_embed = await self.game._create_game_embed() # Await the embed creation
         self._enable_next_phase_button("turn")
@@ -2027,6 +2029,7 @@ class TexasHoldEmGameView(discord.ui.View):
             await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
             return
         await interaction.response.defer()
+        button.disabled = True # Disable the button immediately
         self.game.deal_river()
         new_embed = await self.game._create_game_embed() # Await the embed creation
         self._enable_next_phase_button("river")
@@ -2038,6 +2041,7 @@ class TexasHoldEmGameView(discord.ui.View):
             await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
             return
         await interaction.response.defer()
+        button.disabled = True # Disable the button immediately
         final_embed = await self.game._create_game_embed(reveal_opponent=True) # Await the embed creation
         self._end_game_buttons()
         await self._update_game_message(interaction, final_embed, view_to_use=self)
@@ -2170,7 +2174,6 @@ class TexasHoldEmGame:
     async def _create_game_embed(self, reveal_opponent: bool = False) -> discord.Embed:
         """
         Creates and returns a Discord Embed object representing the current game state.
-        Includes a retry mechanism for fetching the image from the PHP backend.
         :param reveal_opponent: If True, reveals the bot's hole cards.
         :return: A discord.Embed object.
         """
@@ -2207,47 +2210,37 @@ class TexasHoldEmGame:
         cache_buster = int(time.time() * 1000) # Milliseconds since epoch
         full_game_image_url = f"{self.game_data_url}?game_data={encoded_game_state}&_cb={cache_buster}"
         
-        # Implement retry logic for image URL
-        max_retries = 5 # Increased retries
-        retry_delay_seconds = 2 # Increased delay
-        image_loaded_successfully = False
-
-        # Add a small initial delay before the first attempt
+        # Add a small initial delay before the first attempt to allow backend to process if needed
         await asyncio.sleep(0.5)
 
-        for attempt in range(max_retries):
-            try:
-                async with aiohttp.ClientSession() as session:
-                    # Use GET request to actually fetch content and check content type
-                    # Increased timeout for GET request
-                    async with session.get(full_game_image_url, timeout=15) as response: 
-                        if response.status == 200 and response.content_type.startswith('image/'):
-                            # We don't need to read the content if it's just for URL embedding
-                            # Just confirming it's an image and accessible
-                            embed.set_image(url=full_game_image_url)
-                            image_loaded_successfully = True
-                            print(f"DEBUG: Texas Hold 'em image loaded successfully on attempt {attempt + 1}.")
-                            break # Exit loop if successful
-                        else:
-                            status_info = f"Status: {response.status}"
-                            if not response.content_type.startswith('image/'):
-                                status_info += f", Content-Type: {response.content_type}"
-                            print(f"WARNING: Texas Hold 'em image check failed ({status_info}) on attempt {attempt + 1}. Retrying...")
-            except aiohttp.ClientError as e:
-                print(f"WARNING: Network error checking Texas Hold 'em image on attempt {attempt + 1}: {e}. Retrying...")
-            except asyncio.TimeoutError:
-                print(f"WARNING: Timeout checking Texas Hold 'em image on attempt {attempt + 1}. Retrying...")
-            except Exception as e:
-                print(f"WARNING: Unexpected error checking Texas Hold 'em image on attempt {attempt + 1}: {e}. Retrying...")
-            
-            if not image_loaded_successfully and attempt < max_retries - 1:
-                await asyncio.sleep(retry_delay_seconds) # Wait before retrying
+        try:
+            async with aiohttp.ClientSession() as session:
+                # Use GET request to actually fetch content and check content type
+                async with session.get(full_game_image_url, timeout=15) as response: 
+                    if response.status == 200 and response.content_type.startswith('image/'):
+                        embed.set_image(url=full_game_image_url)
+                        print(f"DEBUG: Texas Hold 'em image loaded successfully.")
+                    else:
+                        status_info = f"Status: {response.status}"
+                        if not response.content_type.startswith('image/'):
+                            status_info += f", Content-Type: {response.content_type}"
+                        embed.set_footer(text=f"Game Phase: {self.game_phase.replace('_', ' ').title()} | Note: Card images failed to load ({status_info}). Please try again later.")
+                        print(f"ERROR: Failed to load Texas Hold 'em image. URL: {full_game_image_url}")
+                        return embed # Return early on failure to avoid setting default footer
+        except aiohttp.ClientError as e:
+            embed.set_footer(text=f"Game Phase: {self.game_phase.replace('_', ' ').title()} | Note: Network error loading card images: {e}. Please try again later.")
+            print(f"ERROR: Network error loading Texas Hold 'em image: {e}. URL: {full_game_image_url}")
+            return embed # Return early on failure
+        except asyncio.TimeoutError:
+            embed.set_footer(text=f"Game Phase: {self.game_phase.replace('_', ' ').title()} | Note: Timeout loading card images. Please try again later.")
+            print(f"ERROR: Timeout loading Texas Hold 'em image. URL: {full_game_image_url}")
+            return embed # Return early on failure
+        except Exception as e:
+            embed.set_footer(text=f"Game Phase: {self.game_phase.replace('_', ' ').title()} | Note: Unexpected error loading card images: {e}. Please try again later.")
+            print(f"ERROR: Unexpected error loading Texas Hold 'em image: {e}. URL: {full_game_image_url}")
+            return embed # Return early on failure
 
-        if not image_loaded_successfully:
-            embed.set_footer(text=f"Game Phase: {self.game_phase.replace('_', ' ').title()} | Note: Card images failed to load. Please try again later.")
-            print(f"ERROR: Failed to load Texas Hold 'em image after {max_retries} attempts. URL: {full_game_image_url}")
-        else:
-            embed.set_footer(text=f"Game Phase: {self.game_phase.replace('_', ' ').title()}")
+        embed.set_footer(text=f"Game Phase: {self.game_phase.replace('_', ' ').title()}")
         
         return embed
 
