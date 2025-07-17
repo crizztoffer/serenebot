@@ -931,7 +931,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** �",
+                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -1937,15 +1937,7 @@ class TexasHoldEmGameView(discord.ui.View):
         super().__init__(timeout=300) # Game times out after 5 minutes of inactivity
         self.game = game # Reference to the TexasHoldEmGame instance
         self.message = None # To store the message containing the game UI
-        self._add_initial_buttons()
-
-    def _add_initial_buttons(self):
-        """Adds the initial buttons for the game."""
-        self.add_item(discord.ui.Button(label="Deal Flop", style=discord.ButtonStyle.primary, custom_id="holdem_flop"))
-        self.add_item(discord.ui.Button(label="Deal Turn", style=discord.ButtonStyle.primary, custom_id="holdem_turn", disabled=True))
-        self.add_item(discord.ui.Button(label="Deal River", style=discord.ButtonStyle.primary, custom_id="holdem_river", disabled=True))
-        self.add_item(discord.ui.Button(label="Showdown", style=discord.ButtonStyle.red, custom_id="holdem_showdown", disabled=True))
-        self.add_item(discord.ui.Button(label="Play Again", style=discord.ButtonStyle.blurple, custom_id="holdem_play_again", disabled=True))
+        # Buttons are now added via decorators below, so _add_initial_buttons() is removed.
 
     async def _update_game_message(self, interaction: discord.Interaction, embed: discord.Embed, view_to_use: discord.ui.View = None):
         """Helper to update the main game message by editing the original response."""
@@ -1987,7 +1979,10 @@ class TexasHoldEmGameView(discord.ui.View):
             try:
                 for item in self.children:
                     item.disabled = True
+                # Ensure Play Again button is present and enabled on timeout
                 if not any(item.custom_id == "holdem_play_again" for item in self.children):
+                    # This case should ideally not happen if Play Again is always part of the view
+                    # but adding defensively.
                     self.add_item(discord.ui.Button(label="Play Again", style=discord.ButtonStyle.blurple, custom_id="holdem_play_again"))
                 for item in self.children:
                     if item.custom_id == "holdem_play_again":
@@ -2002,7 +1997,7 @@ class TexasHoldEmGameView(discord.ui.View):
             pass # Keep for Play Again functionality
         print(f"Texas Hold 'em game in channel {self.game.channel_id} timed out.")
 
-    @discord.ui.button(label="Deal Flop", style=discord.ButtonStyle.primary, custom_id="holdem_flop")
+    @discord.ui.button(label="Deal Flop", style=discord.ButtonStyle.primary, custom_id="holdem_flop", row=0)
     async def deal_flop_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.game.player.id:
             await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
@@ -2013,7 +2008,7 @@ class TexasHoldEmGameView(discord.ui.View):
         self._enable_next_phase_button("flop")
         await self._update_game_message(interaction, new_embed, view_to_use=self)
 
-    @discord.ui.button(label="Deal Turn", style=discord.ButtonStyle.primary, custom_id="holdem_turn", disabled=True)
+    @discord.ui.button(label="Deal Turn", style=discord.ButtonStyle.primary, custom_id="holdem_turn", disabled=True, row=0)
     async def deal_turn_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.game.player.id:
             await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
@@ -2024,7 +2019,7 @@ class TexasHoldEmGameView(discord.ui.View):
         self._enable_next_phase_button("turn")
         await self._update_game_message(interaction, new_embed, view_to_use=self)
 
-    @discord.ui.button(label="Deal River", style=discord.ButtonStyle.primary, custom_id="holdem_river", disabled=True)
+    @discord.ui.button(label="Deal River", style=discord.ButtonStyle.primary, custom_id="holdem_river", disabled=True, row=0)
     async def deal_river_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.game.player.id:
             await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
@@ -2035,7 +2030,7 @@ class TexasHoldEmGameView(discord.ui.View):
         self._enable_next_phase_button("river")
         await self._update_game_message(interaction, new_embed, view_to_use=self)
 
-    @discord.ui.button(label="Showdown", style=discord.ButtonStyle.red, custom_id="holdem_showdown", disabled=True)
+    @discord.ui.button(label="Showdown", style=discord.ButtonStyle.red, custom_id="holdem_showdown", disabled=True, row=1) # Moved to row 1
     async def showdown_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.game.player.id:
             await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
@@ -2047,7 +2042,7 @@ class TexasHoldEmGameView(discord.ui.View):
         del active_texasholdem_games[self.game.channel_id] # Game ends after showdown
         self.stop() # Stop the view after game ends
 
-    @discord.ui.button(label="Play Again", style=discord.ButtonStyle.blurple, custom_id="holdem_play_again", disabled=True)
+    @discord.ui.button(label="Play Again", style=discord.ButtonStyle.blurple, custom_id="holdem_play_again", disabled=True, row=1) # Moved to row 1
     async def play_again_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.game.player.id:
             await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
@@ -2057,10 +2052,11 @@ class TexasHoldEmGameView(discord.ui.View):
         self.game.reset_game()
         self.game.deal_hole_cards()
 
+        # Reset button states for a new game
         for item in self.children:
             if item.custom_id == "holdem_flop":
                 item.disabled = False
-            else:
+            elif item.custom_id in ["holdem_turn", "holdem_river", "holdem_showdown", "holdem_play_again"]:
                 item.disabled = True
         
         initial_embed = self.game._create_game_embed()
@@ -2071,12 +2067,12 @@ class TexasHoldEmGameView(discord.ui.View):
             print("WARNING: Original game message not found during 'Play Again' edit for Hold 'em.")
             await interaction.followup.send("Could not restart game. Please try `/serene game texas_hold_em` again.", ephemeral=True)
             if self.game.channel_id in active_texasholdem_games:
-                del active_texasholdem_games[self.game.channel_id]
+                del active_texasholdem_games[self.game.channel.id]
         except Exception as e:
             print(f"WARNING: An error occurred during 'Play Again' edit for Hold 'em: {e}")
             await interaction.followup.send("An error occurred while restarting the game.", ephemeral=True)
             if self.game.channel_id in active_texasholdem_games:
-                del active_texasholdem_games[self.game.channel_id]
+                del active_texasholdem_games[self.game.channel.id]
 
 
 class TexasHoldEmGame:
@@ -2102,7 +2098,7 @@ class TexasHoldEmGame:
         """
         suits = ['S', 'D', 'C', 'H'] # Spades, Diamonds, Clubs, Hearts
         ranks = {
-            'A': 1, '2': 3, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9,
+            'A': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9,
             'T': 10, 'J': 10, 'Q': 10, 'K': 10 # T for Ten (as per deckofcardsapi.com)
         }
         rank_titles = {
