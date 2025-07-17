@@ -1117,7 +1117,7 @@ async def on_ready():
         print(f"Processing guild: {guild.name} (ID: {guild.id})")
         for member in guild.members:
             if not member.bot: # Only add actual users, not other bots
-                await add_user_to_db_if_not_exists(guild.id, member.display_name, member.id)
+                await add_user_to_db_if_not_exists(member.guild.id, member.display_name, member.id)
     print("Finished checking existing guild members.")
 
 
@@ -1767,8 +1767,8 @@ class BlackjackGameView(discord.ui.View):
             self._end_game_buttons() # This will disable 'Stay' and enable 'Play Again'
             embed, player_file, dealer_file = await self.game._create_game_embed_with_images()
             embed.set_footer(text="BUST! Serene wins.")
-            # Use followup.edit_message to update the message content and re-send the view
-            await interaction.followup.edit_message(embed=embed, view=self, attachments=[player_file, dealer_file])
+            # Use self.message.edit() to update the message content and re-send the view
+            await self.message.edit(embed=embed, view=self, attachments=[player_file, dealer_file])
             await update_user_kekchipz(interaction.guild.id, interaction.user.id, -50)
             del active_blackjack_games[self.game.channel_id]
         else:
@@ -1782,8 +1782,8 @@ class BlackjackGameView(discord.ui.View):
                     break
 
             embed, player_file, dealer_file = await self.game._create_game_embed_with_images()
-            # Use followup.edit_message to update the message content and re-send the view
-            await interaction.followup.edit_message(embed=embed, view=self, attachments=[player_file, dealer_file])
+            # Use self.message.edit() to update the message content and re-send the view
+            await self.message.edit(embed=embed, view=self, attachments=[player_file, dealer_file])
 
     @discord.ui.button(label="Stay", style=discord.ButtonStyle.red, custom_id="blackjack_stay")
     async def stay_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1806,8 +1806,8 @@ class BlackjackGameView(discord.ui.View):
             self.game.dealer_hand.append(self.game.deal_card())
             serene_value = self.game.calculate_hand_value(self.game.dealer_hand)
             embed, player_file, dealer_file = await self.game._create_game_embed_with_images(reveal_dealer=True)
-            # Use followup.edit_message to update during Serene's turn
-            await interaction.followup.edit_message(embed=embed, view=self, attachments=[player_file, dealer_file])
+            # Use self.message.edit() to update during Serene's turn
+            await self.message.edit(embed=embed, view=self, attachments=[player_file, dealer_file])
             await asyncio.sleep(1)
 
         result_message = ""
@@ -1829,7 +1829,7 @@ class BlackjackGameView(discord.ui.View):
         embed, player_file, dealer_file = await self.game._create_game_embed_with_images(reveal_dealer=True)
         embed.set_footer(text=result_message)
         # Final update
-        await interaction.followup.edit_message(embed=embed, view=self, attachments=[player_file, dealer_file])
+        await self.message.edit(embed=embed, view=self, attachments=[player_file, dealer_file])
         await update_user_kekchipz(interaction.guild.id, interaction.user.id, kekchipz_change)
         del active_blackjack_games[self.game.channel_id]
 
@@ -1862,7 +1862,7 @@ class BlackjackGameView(discord.ui.View):
         # Edit the original message with the new game state and re-enabled buttons
         try:
             # Fix: Changed 'files' to 'attachments'
-            await interaction.followup.edit_message(embed=embed, view=self, attachments=[player_file, dealer_file])
+            await self.message.edit(embed=embed, view=self, attachments=[player_file, dealer_file])
             # Fix: Changed self.game.channel.id to self.game.channel_id
             active_blackjack_games[self.game.channel_id] = self
         except discord.errors.NotFound:
@@ -2154,7 +2154,7 @@ class TexasHoldEmGameView(discord.ui.View):
         self.game.deal_flop() # Advance game state
         self._enable_next_phase_button("flop") # Enable next button, disable others
         embed, player_file, bot_file, community_file = await self.game._create_game_embed_with_images()
-        await interaction.followup.edit_message(embed=embed, view=self, attachments=[player_file, bot_file, community_file])
+        await self.message.edit(embed=embed, view=self, attachments=[player_file, bot_file, community_file])
 
     @discord.ui.button(label="Deal Turn", style=discord.ButtonStyle.primary, custom_id="holdem_turn", disabled=True, row=0)
     async def deal_turn_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2168,7 +2168,7 @@ class TexasHoldEmGameView(discord.ui.View):
         self.game.deal_turn()
         self._enable_next_phase_button("turn")
         embed, player_file, bot_file, community_file = await self.game._create_game_embed_with_images()
-        await interaction.followup.edit_message(embed=embed, view=self, attachments=[player_file, bot_file, community_file])
+        await self.message.edit(embed=embed, view=self, attachments=[player_file, bot_file, community_file])
 
     @discord.ui.button(label="Deal River", style=discord.ButtonStyle.primary, custom_id="holdem_river", disabled=True, row=0)
     async def deal_river_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2182,7 +2182,7 @@ class TexasHoldEmGameView(discord.ui.View):
         self.game.deal_river()
         self._enable_next_phase_button("river")
         embed, player_file, bot_file, community_file = await self.game._create_game_embed_with_images()
-        await interaction.followup.edit_message(embed=embed, view=self, attachments=[player_file, bot_file, community_file])
+        await self.message.edit(embed=embed, view=self, attachments=[player_file, bot_file, community_file])
 
     @discord.ui.button(label="Showdown", style=discord.ButtonStyle.red, custom_id="holdem_showdown", disabled=True, row=1) # Moved to row 1
     async def showdown_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2195,7 +2195,7 @@ class TexasHoldEmGameView(discord.ui.View):
 
         self._end_game_buttons() # Disable all game buttons, enable Play Again
         embed, player_file, bot_file, community_file = await self.game._create_game_embed_with_images(reveal_opponent=True)
-        await interaction.followup.edit_message(embed=embed, view=self, attachments=[player_file, bot_file, community_file])
+        await self.message.edit(embed=embed, view=self, attachments=[player_file, bot_file, community_file])
         del active_texasholdem_games[self.game.channel_id]
         self.stop()
 
@@ -2220,7 +2220,7 @@ class TexasHoldEmGameView(discord.ui.View):
         
         embed, player_file, bot_file, community_file = await self.game._create_game_embed_with_images()
         try:
-            await interaction.followup.edit_message(embed=embed, view=self, attachments=[player_file, bot_file, community_file])
+            await self.message.edit(embed=embed, view=self, attachments=[player_file, bot_file, community_file])
             active_texasholdem_games[self.game.channel_id] = self
         except discord.errors.NotFound:
             print("WARNING: Original game message not found during 'Play Again' edit for Hold 'em.")
