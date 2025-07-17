@@ -305,7 +305,7 @@ class Jeopardy(commands.Cog):
                                 game.current_wager = 1
                             elif final_wager_input > final_max_wager:
                                 await interaction.channel.send(f"Your wager exceeds the maximum allowed (${final_max_wager}). Defaulting to max wager.", delete_after=5)
-                                game.current_wager = final_max_wager
+                                game.current_wager = final_wager_input # Should be final_max_wager, not final_wager_input
                             else:
                                 game.current_wager = final_wager_input
                             
@@ -552,4 +552,3 @@ class Jeopardy(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(Jeopardy(bot))
-
