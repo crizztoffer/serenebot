@@ -236,7 +236,9 @@ async def on_ready():
         # After all cogs are loaded, sync commands.
         # This will update existing commands and add new ones.
         print("Attempting to sync slash commands globally...")
-        synced = await bot.tree.sync() # Sync global commands
+        # Use bot.tree.sync() without arguments for global sync.
+        # This is generally robust for updating commands.
+        synced = await bot.tree.sync() 
         print(f"Synced {len(synced)} slash commands globally.")
         
     except Exception as e:
