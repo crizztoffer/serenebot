@@ -210,8 +210,10 @@ def to_past_tense(verb):
 
 # --- Consolidate commands under a single /serene command group ---
 # This group is defined ONCE here and then commands are added to it by cogs.
+# IMPORTANT: Do NOT add this group directly to bot.tree here if it's only meant
+# to be a container for subcommands. It will be implicitly registered when its
+# subcommands are added to it via the cogs.
 serene_group = app_commands.Group(name="serene", description="Commands for Serene Bot.")
-bot.tree.add_command(serene_group)
 
 
 @bot.event
