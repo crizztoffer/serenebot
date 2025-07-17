@@ -2177,20 +2177,14 @@ class TexasHoldEmGame:
             color=discord.Color.dark_blue()
         )
 
-        # Player's Hand
-        player_card_codes = [card['code'] for card in self.player_hole_cards if 'code' in card]
-        player_hand_url = f"{self.game_data_url}?combo={','.join(player_card_codes)}" if player_card_codes else ""
+        # Player's Hand textual representation
         embed.add_field(
             name=f"{self.player.display_name}'s Hand",
             value=f"{self.player_hole_cards[0]['title']}, {self.player_hole_cards[1]['title']}",
             inline=False
         )
 
-        # Serene's Hand (hidden until showdown)
-        bot_card_codes = [card['code'] for card in self.bot_hole_cards if 'code' in card]
-        bot_hand_display_codes = bot_card_codes if reveal_opponent else ["back", "back"] # "back" for hidden card
-        bot_hand_url = f"{self.game_data_url}?combo={','.join(bot_hand_display_codes)}"
-        
+        # Serene's Hand textual representation (hidden until showdown)
         bot_hand_titles = ', '.join([card['title'] for card in self.bot_hole_cards]) if reveal_opponent else "[Hidden Card], [Hidden Card]"
         embed.add_field(
             name=f"Serene's Hand",
@@ -2198,10 +2192,7 @@ class TexasHoldEmGame:
             inline=False
         )
 
-        # Community Cards
-        community_card_codes = [card['code'] for card in self.community_cards if 'code' in card]
-        community_cards_url = f"{self.game_data_url}?combo={','.join(community_card_codes)}" if community_card_codes else ""
-        
+        # Community Cards textual representation
         community_titles = ', '.join([card['title'] for card in self.community_cards]) if self.community_cards else "None yet."
         embed.add_field(
             name="Community Cards",
@@ -2209,19 +2200,41 @@ class TexasHoldEmGame:
             inline=False
         )
         
-        # New image placement logic:
-        # Community cards as main image (most prominent)
-        if community_cards_url:
-            embed.set_image(url=community_cards_url)
+        # Prepare data for the combined image URL
+        # Community cards codes
+        community_card_codes = [card['code'] for card in self.community_cards if 'code' in card]
+        community_cards_param = ','.join(community_card_codes)
+
+        # Player's cards codes
+        player_card_codes = [card['code'] for card in self.player_hole_cards if 'code' in card]
+
+        # Serene's cards codes (hidden or revealed)
+        serene_display_card_codes = [card['code'] for card in self.bot_hole_cards if 'code' in card] if reveal_opponent else ["XX", "XX"]
         
-        # Player's hand as thumbnail (second most prominent)
-        if player_hand_url:
-            embed.set_thumbnail(url=player_hand_url)
+        # Construct the players JSON structure for the PHP backend
+        players_data = {
+            "dealer": {
+                "id": "serene",
+                "cards": serene_display_card_codes
+            },
+            "players": [
+                {
+                    "id": str(self.player.id), # Use player ID for uniqueness
+                    "cards": player_card_codes
+                }
+            ]
+        }
+        players_json_param = json.dumps(players_data)
 
-        # Serene's hand as a link in a field, only if revealed
-        if reveal_opponent and bot_hand_url:
-            embed.add_field(name="Serene's Cards Image", value=f"[Serene's Cards]({bot_hand_url})", inline=False)
+        # URL-encode both parameters
+        encoded_community_cards = urllib.parse.quote_plus(community_cards_param)
+        encoded_players_json = urllib.parse.quote_plus(players_json_param)
 
+        # Construct the final image URL
+        full_game_image_url = f"{self.game_data_url}?table={encoded_community_cards}&players={encoded_players_json}"
+        
+        # Set the main image of the embed to the combined image
+        embed.set_image(url=full_game_image_url)
 
         embed.set_footer(text=f"Game Phase: {self.game_phase.replace('_', ' ').title()}")
         
