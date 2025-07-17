@@ -1588,35 +1588,20 @@ async def create_card_combo_image(combo_str: str, scale_factor: float = 1.0, ove
     default_card_width, default_card_height = 73, 98 # Standard playing card dimensions in pixels (approx)
 
     if not cards:
-        if combo_str == "XX": # Special code for hidden card
-            png_url = "https://deckofcardsapi.com/static/img/back.png" # Use back.png directly
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(png_url) as response:
-                        response.raise_for_status()
-                        pil_image = Image.open(io.BytesIO(await response.read()))
-                        
-                        if pil_image.mode != 'RGBA':
-                            pil_image = pil_image.convert('RGBA')
-                        
-                        scaled_width = int(pil_image.width * scale_factor)
-                        scaled_height = int(pil_image.height * scale_factor)
-                        if scaled_width != pil_image.width or scaled_height != pil_image.height:
-                            pil_image = pil_image.resize((scaled_width, scaled_height), Image.Resampling.LANCZOS)
-                        return pil_image
-            except Exception as e:
-                print(f"Error fetching/processing back card PNG: {e}")
-                # Fallback to a simple transparent placeholder if back card fails
-                return Image.new('RGBA', (default_card_width, default_card_height), (0, 0, 0, 0))
-        
-        raise ValueError("No valid card codes provided in the combo string.")
+        # If no valid card codes are provided (e.g., empty string), return a transparent placeholder.
+        # The "XX" case is now handled within the loop if it's explicitly in the combo_str.
+        return Image.new('RGBA', (default_card_width, default_card_height), (0, 0, 0, 0))
+
 
     card_images = []
     first_card_width, first_card_height = None, None
 
     for i, card in enumerate(cards):
-        # Use .png extension directly
-        png_url = f"https://deckofcardsapi.com/static/img/{card}.png"
+        if card == "XX":
+            png_url = "https://deckofcardsapi.com/static/img/back.png"
+        else:
+            png_url = f"https://deckofcardsapi.com/static/img/{card}.png"
+        
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(png_url) as response:
@@ -1633,7 +1618,7 @@ async def create_card_combo_image(combo_str: str, scale_factor: float = 1.0, ove
                     if first_card_width is None:
                         first_card_width, first_card_height = pil_image.size
                         # If this is the first card, set defaults if not already
-                        if first_card_width is None:
+                        if first_card_width is None: # This inner check is redundant if pil_image.size is always valid here.
                             first_card_width = default_card_width
                             first_card_height = default_card_height
 
@@ -1648,7 +1633,7 @@ async def create_card_combo_image(combo_str: str, scale_factor: float = 1.0, ove
                     card_images.append(pil_image)
 
         except aiohttp.ClientError as e:
-            print(f"Failed to fetch PNG for card '{card}': {e}")
+            print(f"Failed to fetch PNG for card '{card}' from {png_url}: {e}")
             # If the first card fails, ensure default dimensions are set
             if first_card_width is None:
                 first_card_width = default_card_width
@@ -1656,13 +1641,12 @@ async def create_card_combo_image(combo_str: str, scale_factor: float = 1.0, ove
             # Append a placeholder for failed cards to avoid breaking the layout
             card_images.append(Image.new('RGBA', (int(first_card_width * scale_factor), int(first_card_height * scale_factor)), (255, 0, 0, 128))) # Red transparent placeholder
         except Exception as e:
-            print(f"Error processing PNG for card '{card}': {e}")
+            print(f"Error processing PNG for card '{card}' from {png_url}: {e}")
             # If the first card fails, ensure default dimensions are set
             if first_card_width is None:
                 first_card_width = default_card_width
                 first_card_height = default_card_height
             card_images.append(Image.new('RGBA', (int(first_card_width * scale_factor), int(first_card_height * scale_factor)), (0, 255, 0, 128))) # Green transparent placeholder
-
 
     # If no images were successfully loaded at all, return a generic transparent placeholder
     if not card_images:
@@ -1709,11 +1693,17 @@ class BlackjackGameView(discord.ui.View):
     async def _update_game_message(self, interaction: discord.Interaction, embed: discord.Embed, player_file: discord.File, dealer_file: discord.File, view_to_use: discord.ui.View = None):
         """Helper to update the main game message by editing the original response, including image files."""
         try:
-            await interaction.edit_original_response(embed=embed, view=view_to_use, files=[player_file, dealer_file])
+            if self.message: # self.message holds the actual discord.Message object
+                await self.message.edit(embed=embed, view=view_to_use, files=[player_file, dealer_file], attachments=[]) # Clear old attachments
+            else:
+                print("WARNING: self.message is not set. Cannot update game message. Attempting to send new message.")
+                await interaction.followup.send(embed=embed, view=view_to_use, files=[player_file, dealer_file])
         except discord.errors.NotFound:
-            print("WARNING: Original interaction message not found during edit, likely already deleted or inaccessible.")
+            print("WARNING: Game message not found during edit, likely already deleted. Attempting to send new message.")
+            await interaction.followup.send(embed=embed, view=view_to_use, files=[player_file, dealer_file])
         except Exception as e:
-            print(f"WARNING: An error occurred editing original interaction response: {e}")
+            print(f"WARNING: An error occurred editing game message: {e}")
+            await interaction.followup.send(f"An unexpected error occurred while updating the game: {e}", ephemeral=True)
 
     def _end_game_buttons(self):
         """Disables 'Hit' and 'Stay' buttons and enables 'Play Again' button."""
@@ -2064,15 +2054,22 @@ class TexasHoldEmGameView(discord.ui.View):
 
     async def _update_game_message(self, interaction: discord.Interaction, embed: discord.Embed, player_file: discord.File, bot_file: discord.File, community_file: discord.File, view_to_use: discord.ui.View = None):
         """Helper to update the main game message by editing the original response, including image files."""
+        files_to_send = [player_file, bot_file]
+        if community_file:
+            files_to_send.append(community_file)
+
         try:
-            files_to_send = [player_file, bot_file]
-            if community_file: # Only add if there are community cards
-                files_to_send.append(community_file)
-            await interaction.edit_original_response(embed=embed, view=view_to_use, files=files_to_send)
+            if self.message: # self.message holds the actual discord.Message object
+                await self.message.edit(embed=embed, view=view_to_use, files=files_to_send, attachments=[]) # Clear old attachments
+            else:
+                print("WARNING: self.message is not set. Cannot update game message. Attempting to send new message.")
+                await interaction.followup.send(embed=embed, view=view_to_use, files=files_to_send)
         except discord.errors.NotFound:
-            print("WARNING: Original interaction message not found during edit, likely already deleted or inaccessible.")
+            print("WARNING: Game message not found during edit, likely already deleted. Attempting to send new message.")
+            await interaction.followup.send(embed=embed, view=view_to_use, files=files_to_send)
         except Exception as e:
-            print(f"WARNING: An error occurred editing original interaction response: {e}")
+            print(f"WARNING: An error occurred editing game message: {e}")
+            await interaction.followup.send(f"An unexpected error occurred while updating the game: {e}", ephemeral=True)
 
     def _enable_next_phase_button(self, current_phase: str):
         """Enables the button for the next phase of the game."""
