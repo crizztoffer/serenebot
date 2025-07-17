@@ -932,7 +932,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** �",
+                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -2101,11 +2101,11 @@ class TexasHoldEmGame:
         suits = ['S', 'D', 'C', 'H'] # Spades, Diamonds, Clubs, Hearts
         ranks = {
             'A': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9,
-            'T': 10, 'J': 10, 'Q': 10, 'K': 10 # T for Ten (as per deckofcardsapi.com)
+            'T': 10, 'J': 10, 'Q': 10, 'K': 10 # Changed '0' to 'T' for Ten
         }
         rank_titles = {
             'A': 'Ace', '2': 'Two', '3': 'Three', '4': 'Four', '5': 'Five',
-            '6': 'Six', '7': 'Seven', '8': 'Eight', '9': 'Nine', 'T': 'Ten',
+            '6': 'Six', '7': 'Seven', '8': 'Eight', '9': 'Nine', 'T': 'Ten', # Changed '0' to 'T' for Ten
             'J': 'Jack', 'Q': 'Queen', 'K': 'King'
         }
         suit_titles = {
