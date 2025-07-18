@@ -944,7 +944,7 @@ class TicTacToeView(discord.ui.View):
             elif self._check_draw():
                 await update_user_kekchipz(interaction.guild.id, interaction.user.id, 25) # Human player gets kekchipz for a draw
                 await interaction.edit_original_response(
-                    content="It's a **draw!** 🤝",
+                    content="It's a **draw!** �",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -1720,172 +1720,6 @@ async def create_card_combo_image(combo_str: str, scale_factor: float = 1.0, ove
 
     return combined_image
 
-# --- New Blackjack Game Class ---
-
-class BlackjackGame:
-    """
-    Represents a single Blackjack game instance.
-    Manages game state, player and dealer hands, and game logic.
-    """
-    def __init__(self, channel_id: int, player: discord.User):
-        self.channel_id = channel_id
-        self.player = player # Human player
-        self.deck = self._create_standard_deck()
-        self.player_hand = []
-        self.dealer_hand = []
-        self.game_message = None # To store the message containing the game UI
-
-    def _create_standard_deck(self) -> list[dict]:
-        """
-        Generates a standard 52-card deck with titles, numbers, and codes.
-        """
-        suits = ['S', 'D', 'C', 'H'] # Spades, Diamonds, Clubs, Hearts
-        ranks = {
-            'A': 11, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9,
-            'T': 10, 'J': 10, 'Q': 10, 'K': 10 # T for Ten (as per deckofcardsapi.com)
-        }
-        rank_titles = {
-            'A': 'Ace', '2': 'Two', '3': 'Three', '4': 'Four', '5': 'Five',
-            '6': 'Six', '7': 'Seven', '8': 'Eight', '9': 'Nine', 'T': 'Ten',
-            'J': 'Jack', 'Q': 'Queen', 'K': 'King'
-        }
-        suit_titles = {
-            'S': 'Spades', 'D': 'Diamonds', 'C': 'Clubs', 'H': 'Hearts'
-        }
-
-        deck = []
-        for suit_code in suits:
-            for rank_code, num_value in ranks.items():
-                title = f"{rank_titles[rank_code]} of {suit_titles[suit_code]}"
-                card_code = f"{rank_code}{suit_code}"
-                deck.append({
-                    "title": title,
-                    "cardNumber": num_value,
-                    "code": card_code
-                })
-        return deck
-
-    def deal_card(self) -> dict:
-        """
-        Deals a random card from the deck. Removes the card from the deck.
-        Returns the dealt card (dict with 'title', 'cardNumber', and 'code').
-        """
-        if not self.deck:
-            print("Warning: Deck is empty, cannot deal more cards.")
-            return {"title": "No Card", "cardNumber": 0, "code": "NO_CARD"} 
-        
-        card = random.choice(self.deck)
-        self.deck.remove(card)
-        return card
-
-    def calculate_hand_value(self, hand: list[dict]) -> int:
-        """
-        Calculates the value of a Blackjack hand.
-        Handles Aces (1 or 11) correctly.
-        """
-        value = 0
-        num_aces = 0
-        for card in hand:
-            if card['cardNumber'] == 11: # Ace
-                num_aces += 1
-            value += card['cardNumber']
-
-        while value > 21 and num_aces > 0:
-            value -= 10 # Change Ace from 11 to 1
-            num_aces -= 1
-        return value
-
-    async def _create_game_embed_with_images(self, reveal_dealer: bool = False) -> tuple[discord.Embed, discord.File, discord.File]:
-        """
-        Creates and returns a Discord Embed object and Discord.File objects
-        representing the current Blackjack game state with combined card images.
-        :param reveal_dealer: If True, reveals the dealer's hidden card.
-        :return: A tuple of (discord.Embed, player_image_file, dealer_image_file).
-        """
-        embed = discord.Embed(
-            title="Blackjack Game",
-            description=f"**{self.player.display_name} vs. Serene**",
-            color=discord.Color.green()
-        )
-        
-        # Player's cards
-        player_card_codes = [card['code'] for card in self.player_hand if 'code' in card]
-        player_image_pil = await create_card_combo_image(','.join(player_card_codes), scale_factor=0.8, overlap_percent=0.4)
-        player_image_bytes = io.BytesIO()
-        player_image_pil.save(player_image_bytes, format='PNG')
-        player_image_bytes.seek(0)
-        player_file = discord.File(player_image_bytes, filename="player_hand.png")
-
-        # Dealer's cards (one hidden if not revealed)
-        dealer_display_card_codes = []
-        if self.dealer_hand:
-            dealer_display_card_codes.append(self.dealer_hand[0]['code']) # First card always visible
-            if reveal_dealer and len(self.dealer_hand) > 1:
-                dealer_display_card_codes.extend([card['code'] for card in self.dealer_hand[1:]])
-            elif len(self.dealer_hand) > 1:
-                dealer_display_card_codes.append("XX") # Hidden card
-        
-        dealer_image_pil = await create_card_combo_image(','.join(dealer_display_card_codes), scale_factor=0.8, overlap_percent=0.4)
-        dealer_image_bytes = io.BytesIO()
-        dealer_image_pil.save(dealer_image_bytes, format='PNG')
-        dealer_image_bytes.seek(0)
-        dealer_file = discord.File(dealer_image_bytes, filename="dealer_hand.png")
-
-        # Set images in embed
-        embed.add_field(name=f"{self.player.display_name}'s Hand (Value: {self.calculate_hand_value(self.player_hand)})", value="Your cards", inline=False)
-        embed.set_image(url="attachment://player_hand.png") # Main image for player's hand
-
-        dealer_value_text = f"Value: {self.calculate_hand_value(self.dealer_hand)}" if reveal_dealer else "Value: ?"
-        embed.add_field(name=f"Serene's Hand ({dealer_value_text})", value="Dealer's cards", inline=False)
-        embed.set_thumbnail(url="attachment://dealer_hand.png") # Thumbnail for dealer's hand
-        
-        return embed, player_file, dealer_file
-
-    async def start_game(self, interaction: discord.Interaction):
-        """
-        Starts the Blackjack game: shuffles, deals initial hands,
-        and displays the initial state.
-        """
-        random.shuffle(self.deck)
-        self.player_hand = [self.deal_card(), self.deal_card()]
-        self.dealer_hand = [self.deal_card(), self.deal_card()]
-
-        # Check for immediate Blackjack
-        player_value = self.calculate_hand_value(self.player_hand)
-        dealer_value = self.calculate_hand_value(self.dealer_hand)
-
-        game_view = BlackjackGameView(game=self)
-        initial_embed, player_file, dealer_file = await self._create_game_embed_with_images()
-
-        if player_value == 21 and dealer_value == 21:
-            initial_embed.set_footer(text="Both have Blackjack! It's a push (tie). Game Over.")
-            await interaction.followup.send(embed=initial_embed, view=None, files=[player_file, dealer_file]) # Remove buttons
-            if self.channel_id in active_blackjack_games:
-                del active_blackjack_games[self.channel_id]
-            game_view.stop()
-            return
-        elif player_value == 21:
-            initial_embed.set_footer(text="Blackjack! You win! Game Over.")
-            await interaction.followup.send(embed=initial_embed, view=None, files=[player_file, dealer_file]) # Remove buttons
-            await update_user_kekchipz(interaction.guild.id, interaction.user.id, 150)
-            if self.channel_id in active_blackjack_games:
-                del active_blackjack_games[self.channel_id]
-            game_view.stop()
-            return
-        elif dealer_value == 21:
-            initial_embed.set_footer(text="Serene has Blackjack! Serene wins. Game Over.")
-            await interaction.followup.send(embed=initial_embed, view=None, files=[player_file, dealer_file]) # Remove buttons
-            await update_user_kekchipz(interaction.guild.id, interaction.user.id, -100)
-            if self.channel_id in active_blackjack_games:
-                del active_blackjack_games[self.channel_id]
-            game_view.stop()
-            return
-        
-        # If no immediate Blackjack, send the initial game message with buttons
-        self.game_message = await interaction.followup.send(embed=initial_embed, view=game_view, files=[player_file, dealer_file])
-        game_view.message = self.game_message # Store the message reference in the view
-        active_blackjack_games[self.channel_id] = game_view
-
 
 # --- New Blackjack Game UI Components ---
 
@@ -1899,11 +1733,6 @@ class BlackjackGameView(discord.ui.View):
         self.message = None # To store the message containing the game UI
         self.play_again_timeout_task = None # To store the task for the "Play Again" timeout
 
-        # Add Hit and Stay buttons initially
-        self.add_item(discord.ui.Button(label="Hit", style=discord.ButtonStyle.green, custom_id="blackjack_hit"))
-        self.add_item(discord.ui.Button(label="Stay", style=discord.ButtonStyle.red, custom_id="blackjack_stay"))
-
-
     async def _update_game_message(self, embed: discord.Embed, player_file: discord.File, dealer_file: discord.File, view_to_use: discord.ui.View = None):
         """Helper to update the main game message by editing the original response, including image files."""
         try:
@@ -1916,16 +1745,26 @@ class BlackjackGameView(discord.ui.View):
         except Exception as e:
             print(f"WARNING: An error occurred editing game message: {e}")
 
-    def _set_playing_button_states(self, enabled: bool):
-        """Enables/disables Hit and Stay buttons."""
+    def _set_button_states(self, game_state: str):
+        """
+        Sets the disabled state of all buttons based on the current game state.
+        game_state: "playing", "game_over"
+        """
         for item in self.children:
-            if item.custom_id in ["blackjack_hit", "blackjack_stay"]:
-                item.disabled = not enabled
+            if item.custom_id == "blackjack_hit":
+                item.disabled = (game_state != "playing")
+            elif item.custom_id == "blackjack_stay":
+                item.disabled = (game_state != "playing")
+            elif item.custom_id == "blackjack_play_again":
+                item.disabled = (game_state != "game_over") # Enabled only when game is over
         
-        # Cancel play_again_timeout_task if it's active and we are enabling playing buttons
-        if enabled and self.play_again_timeout_task and not self.play_again_timeout_task.done():
-            self.play_again_timeout_task.cancel()
-            self.play_again_timeout_task = None
+        # Manage the "Play Again" timeout task
+        if game_state == "game_over":
+            if self.play_again_timeout_task and not self.play_again_timeout_task.done():
+                self.play_again_timeout_task.cancel() # Cancel any existing task
+            self.play_again_timeout_task = bot.loop.create_task(self._handle_play_again_timeout())
+        elif self.play_again_timeout_task and not self.play_again_timeout_task.done():
+            self.play_again_timeout_task.cancel() # Cancel if game is no longer over
 
     async def _handle_play_again_timeout(self):
         """Handles the timeout for the 'Play Again' button."""
@@ -1934,10 +1773,14 @@ class BlackjackGameView(discord.ui.View):
             
             # If we reach here, the "Play Again" button was not pressed in time
             if self.game.channel_id in active_blackjack_games:
-                # Update the message to indicate timeout and remove all buttons
+                # Disable all buttons
+                for item in self.children:
+                    item.disabled = True
+                
+                # Update the message to indicate timeout
                 if self.message:
                     try:
-                        await self.message.edit(content="Blackjack game ended due to inactivity (no action taken).", view=None, embed=self.message.embed)
+                        await self.message.edit(content="Blackjack game ended due to inactivity (Play Again not pressed).", view=self, embed=self.message.embed)
                     except discord.errors.NotFound:
                         print("WARNING: Game message not found during play again timeout, likely already deleted.")
                     except Exception as e:
@@ -1958,17 +1801,20 @@ class BlackjackGameView(discord.ui.View):
         """Called when the view times out due to inactivity."""
         if self.message:
             try:
-                # Remove all buttons and indicate timeout
-                await self.message.edit(content="Blackjack game timed out due to inactivity.", view=None, embed=self.message.embed)
+                # Disable all buttons and add a play again button if it's not already there
+                self._set_button_states("game_over") # Set buttons for game over (Play Again enabled)
+                await self.message.edit(content="Blackjack game timed out due to inactivity. Click 'Play Again' to start a new game.", view=self, embed=self.message.embed)
+
             except discord.errors.NotFound:
                 print("WARNING: Game message not found during timeout, likely already deleted.")
             except Exception as e:
                 print(f"WARNING: An error occurred editing board message on timeout: {e}")
         
         if self.game.channel_id in active_blackjack_games:
-            del active_blackjack_games[self.game.channel_id]
-        if self.play_again_timeout_task: # Cancel if still running
-            self.play_again_timeout_task.cancel()
+            # We don't delete the game from active_blackjack_games here,
+            # as we want the "Play Again" button to be functional.
+            # The game will be removed when "Play Again" is clicked or a new game starts.
+            pass
         print(f"Blackjack game in channel {self.game.channel_id} timed out.")
 
 
@@ -1980,25 +1826,28 @@ class BlackjackGameView(discord.ui.View):
             return
         
         # Disable all action buttons immediately for feedback, re-enable if game continues
-        self._set_playing_button_states(False)
+        for item in self.children:
+            if item.custom_id in ["blackjack_hit", "blackjack_stay"]:
+                item.disabled = True
         await interaction.response.edit_message(view=self) # Immediate visual update
 
         self.game.player_hand.append(self.game.deal_card())
         player_value = self.game.calculate_hand_value(self.game.player_hand)
 
         if player_value > 21:
+            self._set_button_states("game_over") # Set buttons for game over
             embed, player_file, dealer_file = await self.game._create_game_embed_with_images()
-            embed.set_footer(text="BUST! Serene wins. Game Over.")
-            await self._update_game_message(embed, player_file, dealer_file, None) # Remove all buttons
+            embed.set_footer(text="BUST! Serene wins.")
+            await self._update_game_message(embed, player_file, dealer_file, self) # Use helper
             await update_user_kekchipz(interaction.guild.id, interaction.user.id, -50)
-            if self.play_again_timeout_task:
+            # Game is over, cancel any pending play_again_timeout_task
+            if self.play_again_timeout_task and not self.play_again_timeout_task.done():
                 self.play_again_timeout_task.cancel()
             del active_blackjack_games[self.game.channel_id]
-            self.stop() # Stop the view's main timeout
         else:
-            self._set_playing_button_states(True) # Re-enable hit/stay
+            self._set_button_states("playing") # Set buttons for continuing game
             embed, player_file, dealer_file = await self.game._create_game_embed_with_images()
-            await self._update_game_message(embed, player_file, dealer_file, self)
+            await self._update_game_message(embed, player_file, dealer_file, self) # Use helper
 
     @discord.ui.button(label="Stay", style=discord.ButtonStyle.red, custom_id="blackjack_stay")
     async def stay_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2008,7 +1857,9 @@ class BlackjackGameView(discord.ui.View):
             return
         
         # Disable all action buttons immediately for feedback
-        self._set_playing_button_states(False)
+        for item in self.children:
+            if item.custom_id in ["blackjack_hit", "blackjack_stay"]:
+                item.disabled = True
         await interaction.response.edit_message(view=self) # Immediate visual update
 
         # Serene's turn
@@ -2038,14 +1889,237 @@ class BlackjackGameView(discord.ui.View):
             result_message = "It's a push (tie)!"
             kekchipz_change = 0
 
+        self._set_button_states("game_over") # Set buttons for game over
         embed, player_file, dealer_file = await self.game._create_game_embed_with_images(reveal_dealer=True)
-        embed.set_footer(text=result_message + " Game Over.")
-        await self._update_game_message(embed, player_file, dealer_file, None) # Remove all buttons
+        embed.set_footer(text=result_message)
+        await self._update_game_message(embed, player_file, dealer_file, self) # Use helper
         await update_user_kekchipz(interaction.guild.id, interaction.user.id, kekchipz_change)
-        if self.play_again_timeout_task:
+        # Game is over, cancel any pending play_again_timeout_task
+        if self.play_again_timeout_task and not self.play_again_timeout_task.done():
             self.play_again_timeout_task.cancel()
         del active_blackjack_games[self.game.channel_id]
-        self.stop() # Stop the view's main timeout
+
+    @discord.ui.button(label="Play Again", style=discord.ButtonStyle.blurple, custom_id="blackjack_play_again", disabled=True)
+    async def play_again_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handles the 'Play Again' button click by resetting the game and updating the current message."""
+        if interaction.user.id != self.game.player.id:
+            await interaction.response.send_message("This is not your Blackjack game!", ephemeral=True)
+            return
+
+        # Cancel the play_again_timeout_task if it's running
+        if self.play_again_timeout_task and not self.play_again_timeout_task.done():
+            self.play_again_timeout_task.cancel()
+            self.play_again_timeout_task = None # Clear the reference
+
+        # Disable Play Again button immediately
+        button.disabled = True
+        await interaction.response.edit_message(view=self) # Immediate visual update
+
+        self.game.reset_game()
+        self.game.player_hand = [self.game.deal_card(), self.game.deal_card()]
+        self.game.dealer_hand = [self.game.deal_card(), self.game.deal_card()]
+
+        self._set_button_states("playing") # Reset buttons for new game
+        
+        embed, player_file, dealer_file = await self.game._create_game_embed_with_images()
+
+        try:
+            await self._update_game_message(embed, player_file, dealer_file, self) # Use helper
+            active_blackjack_games[self.game.channel_id] = self
+        except discord.errors.NotFound:
+            print("WARNING: Original game message not found during 'Play Again' edit.")
+            await interaction.followup.send("Could not restart game. Please try `/serene game blackjack` again.", ephemeral=True)
+            if self.game.channel_id in active_blackjack_games:
+                del active_blackjack_games[self.game.channel_id]
+        except Exception as e:
+            print(f"WARNING: An error occurred during 'Play Again' edit: {e}")
+            await interaction.followup.send("An error occurred while restarting the game.", ephemeral=True)
+            if self.game.channel_id in active_blackjack_games:
+                del active_blackjack_games[self.game.channel_id]
+        
+
+class BlackjackGame:
+    """
+    Represents a single Blackjack game instance.
+    Manages game state, player and Serene hands, and card deck.
+    """
+    def __init__(self, channel_id: int, player: discord.User):
+        self.channel_id = channel_id
+        self.player = player
+        self.deck = self._create_standard_deck() # Initialize deck locally
+        self.player_hand = []
+        self.dealer_hand = [] # This will be Serene's hand
+        self.game_message = None # To store the message containing the game UI
+        # self.game_data_url = "https://serenekeks.com/serene_bot_games.php" # No longer needed
+        self.game_over = False # New flag to track if the game has ended
+
+    def _create_standard_deck(self) -> list[dict]:
+        """
+        Generates a standard 52-card deck with titles, numbers, and codes.
+        """
+        suits = ['S', 'D', 'C', 'H'] # Spades, Diamonds, Clubs, Hearts
+        ranks = {
+            'A': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9,
+            '0': 10, 'J': 10, 'Q': 10, 'K': 10
+        }
+        rank_titles = {
+            'A': 'Ace', '2': 'Two', '3': 'Three', '4': 'Four', '5': 'Five',
+            '6': 'Six', '7': 'Seven', '8': 'Eight', '9': 'Nine', '0': 'Ten',
+            'J': 'Jack', 'Q': 'Queen', 'K': 'King'
+        }
+        suit_titles = {
+            'S': 'Spades', 'D': 'Diamonds', 'C': 'Clubs', 'H': 'Hearts'
+        }
+
+        deck = []
+        for suit_code in suits:
+            for rank_code, num_value in ranks.items():
+                title = f"{rank_titles[rank_code]} of {suit_titles[suit_code]}"
+                card_code = f"{rank_code}{suit_code}"
+                deck.append({
+                    "title": title,
+                    "cardNumber": num_value,
+                    "code": card_code
+                })
+        return deck
+
+    def deal_card(self) -> dict:
+        """
+        Deals a random card from the deck. Removes the card from the deck.
+        Returns the dealt card (dict with 'title', 'cardNumber', and 'code').
+        """
+        if not self.deck:
+            # Handle case where deck is empty (e.g., reshuffle or end game)
+            print("Warning: Deck is empty, cannot deal more cards.")
+            # Return a dummy card with empty image and code for graceful failure
+            return {"title": "No Card", "cardNumber": 0, "code": "NO_CARD"} 
+        
+        card = random.choice(self.deck)
+        self.deck.remove(card) # Remove the dealt card from the deck
+        return card
+
+    def calculate_hand_value(self, hand: list[dict]) -> int:
+        """
+        Calculates the value of a Blackjack hand.
+        Handles Aces (1 or 11) dynamically.
+        """
+        value = 0
+        num_aces = 0
+        for card in hand:
+            card_number = card.get("cardNumber", 0)
+            if card_number == 1: # Ace
+                num_aces += 1
+                value += 11 # Assume 11 initially
+            elif card_number >= 10: # Face cards (10, Jack, Queen, King)
+                value += 10
+            else: # Number cards
+                value += card_number
+        
+        # Adjust for Aces if hand value exceeds 21
+        while value > 21 and num_aces > 0:
+            value -= 10 # Change an Ace from 11 to 1
+            num_aces -= 1
+        return value
+
+    async def _create_game_embed_with_images(self, reveal_dealer: bool = False) -> tuple[discord.Embed, discord.File, discord.File]:
+        """
+        Creates and returns a Discord Embed object and Discord.File objects
+        representing the current game state with combined card images.
+        :param reveal_dealer: If True, reveals Serene's hidden card.
+        :return: A tuple of (discord.Embed, player_image_file, dealer_image_file).
+        """
+        player_value = self.calculate_hand_value(self.player_hand)
+        serene_value = self.calculate_hand_value(self.dealer_hand)
+
+        # Fetch player's kekchipz
+        player_kekchipz = await get_user_kekchipz(self.player.guild.id, self.player.id)
+
+        # Generate player's hand image
+        player_card_codes = [card['code'] for card in self.player_hand if 'code' in card]
+        player_image_pil = await create_card_combo_image(','.join(player_card_codes), scale_factor=0.8, overlap_percent=0.4)
+        player_image_bytes = io.BytesIO()
+        player_image_pil.save(player_image_bytes, format='PNG')
+        player_image_bytes.seek(0) # Rewind to the beginning of the BytesIO object
+        player_file = discord.File(player_image_bytes, filename="player_hand.png")
+
+        # Generate Serene's hand image
+        serene_display_cards_codes = []
+        if reveal_dealer:
+            serene_display_cards_codes = [card['code'] for card in self.dealer_hand if 'code' in card]
+        else:
+            # Only show the first card and a back card
+            if self.dealer_hand and 'code' in self.dealer_hand[0]:
+                serene_display_cards_codes.append(self.dealer_hand[0]['code'])
+            serene_display_cards_codes.append("XX") # Placeholder for back of card
+
+        serene_image_pil = await create_card_combo_image(','.join(serene_display_cards_codes), scale_factor=0.8, overlap_percent=0.4)
+        serene_image_bytes = io.BytesIO()
+        serene_image_pil.save(serene_image_bytes, format='PNG')
+        serene_image_bytes.seek(0)
+        dealer_file = discord.File(serene_image_bytes, filename="serene_hand.png")
+
+        # Create an embed for the game display
+        embed = discord.Embed(
+            title="Blackjack Game",
+            description=f"**{self.player.display_name} vs. Serene**\n\n"
+                        f"**{self.player.display_name}'s Kekchipz:** ${player_kekchipz}", # Display kekchipz here
+            color=discord.Color.dark_green()
+        )
+
+        embed.add_field(
+            name=f"{self.player.display_name}'s Hand",
+            value=f"Value: {player_value}",
+            inline=False
+        )
+
+        serene_hand_value_str = f"{serene_value}" if reveal_dealer else f"{self.calculate_hand_value([self.dealer_hand[0]])} + ?"
+        serene_hand_titles = ', '.join([card['title'] for card in self.dealer_hand]) if reveal_dealer else f"{self.dealer_hand[0]['title']}, [Hidden Card]"
+        
+        embed.add_field(
+            name=f"Serene's Hand (Value: {serene_hand_value_str})",
+            value=serene_hand_titles,
+            inline=False
+        )
+
+        # Reference the attachments in the embed
+        embed.set_image(url="attachment://player_hand.png")
+        embed.set_thumbnail(url="attachment://serene_hand.png")
+        
+        embed.set_footer(text="What would you like to do? (Hit or Stand)")
+        
+        return embed, player_file, dealer_file
+
+    def reset_game(self):
+        """Resets the game state for a new round."""
+        self.deck = self._create_standard_deck()
+        random.shuffle(self.deck)
+        self.player_hand = []
+        self.dealer_hand = []
+        self.game_over = False
+
+    async def start_game(self, interaction: discord.Interaction):
+        """
+        Starts the Blackjack game: shuffles, deals initial hands,
+        and displays the initial state using an embed with combined card images.
+        """
+        # Deck is already created in __init__, just shuffle it
+        random.shuffle(self.deck) 
+
+        # Deal initial hands
+        self.player_hand = [self.deal_card(), self.deal_card()]
+        self.dealer_hand = [self.deal_card(), self.deal_card()] # This is Serene's hand
+        
+        # Create the view for the game
+        game_view = BlackjackGameView(game=self)
+        
+        # Create the initial embed and get image files
+        initial_embed, player_file, dealer_file = await self._create_game_embed_with_images()
+
+        # Send the message as a follow-up to the deferred slash command interaction
+        self.game_message = await interaction.followup.send(embed=initial_embed, view=game_view, files=[player_file, dealer_file])
+        game_view.message = self.game_message # Store message in the view for updates
+        
+        active_blackjack_games[self.channel_id] = game_view # Store the view instance, not the game itself
 
 
 # --- New Texas Hold 'em Game Classes ---
@@ -2180,7 +2254,7 @@ class TexasHoldEmGameView(discord.ui.View):
         self._end_game_buttons() # Disable all game buttons, enable Play Again
         embed, player_file, bot_file, community_file = await self.game._create_game_embed_with_images(reveal_opponent=True)
         await self._update_game_message(embed, player_file, bot_file, community_file, self)
-        del active_texasholdem_games[self.game.channel.id]
+        del active_texasholdem_games[self.game.channel_id]
         self.stop()
 
     @discord.ui.button(label="Play Again", style=discord.ButtonStyle.blurple, custom_id="holdem_play_again", disabled=True, row=1) # Moved to row 1
