@@ -935,7 +935,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** �",
+                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -2162,7 +2162,7 @@ class TexasHoldEmGameView(discord.ui.View):
         """Called when the view times out due to inactivity."""
         # This view is attached to the player's message.
         # When it times out, we should disable its buttons and update the message.
-        if self.game.player_message:
+        if self.game.game_message: # Changed from player_message to game_message
             try:
                 for item in self.children:
                     item.disabled = True
@@ -2173,11 +2173,11 @@ class TexasHoldEmGameView(discord.ui.View):
                     if item.custom_id == "holdem_play_again":
                         item.disabled = False
                         break
-                await self.game.player_message.edit(content=f"{self.game.player.display_name}'s turn timed out. Click 'Play Again' to start a new game.", view=self)
+                await self.game.game_message.edit(content=f"{self.game.player.display_name}'s turn timed out. Click 'Play Again' to start a new game.", view=self, attachments=[]) # Clear attachments
             except discord.errors.NotFound:
-                print("WARNING: Player message not found during timeout, likely already deleted.")
+                print("WARNING: Game message not found during timeout, likely already deleted.")
             except Exception as e:
-                print(f"WARNING: An error occurred editing player message on timeout: {e}")
+                print(f"WARNING: An error occurred editing game message on timeout: {e}")
         
         if self.game.channel_id in active_texasholdem_games:
             pass # Keep for Play Again functionality
@@ -2194,7 +2194,7 @@ class TexasHoldEmGameView(discord.ui.View):
 
         self.game.deal_flop() # Advance game state
         self._enable_next_phase_button("flop") # Enable next button, disable others
-        await self.game._update_display_messages(interaction, self) # Pass self as view to update player message
+        await self.game._update_display_message(interaction, self) # Pass self as view to update player message
 
     @discord.ui.button(label="Deal Turn", style=discord.ButtonStyle.primary, custom_id="holdem_turn", disabled=True, row=0)
     async def deal_turn_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2207,7 +2207,7 @@ class TexasHoldEmGameView(discord.ui.View):
 
         self.game.deal_turn()
         self._enable_next_phase_button("turn")
-        await self.game._update_display_messages(interaction, self)
+        await self.game._update_display_message(interaction, self)
 
     @discord.ui.button(label="Deal River", style=discord.ButtonStyle.primary, custom_id="holdem_river", disabled=True, row=0)
     async def deal_river_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2220,7 +2220,7 @@ class TexasHoldEmGameView(discord.ui.View):
 
         self.game.deal_river()
         self._enable_next_phase_button("river")
-        await self.game._update_display_messages(interaction, self)
+        await self.game._update_display_message(interaction, self)
 
     @discord.ui.button(label="Showdown", style=discord.ButtonStyle.red, custom_id="holdem_showdown", disabled=True, row=1) # Moved to row 1
     async def showdown_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2232,7 +2232,7 @@ class TexasHoldEmGameView(discord.ui.View):
         await interaction.response.edit_message(view=self) # Send immediate update
 
         self._end_game_buttons() # Disable all game buttons, enable Play Again
-        await self.game._update_display_messages(interaction, self, reveal_opponent=True)
+        await self.game._update_display_message(interaction, self, reveal_opponent=True)
         del active_texasholdem_games[self.game.channel_id]
         self.stop()
 
@@ -2256,7 +2256,7 @@ class TexasHoldEmGameView(discord.ui.View):
                 item.disabled = True
         
         try:
-            await self.game._update_display_messages(interaction, self)
+            await self.game._update_display_message(interaction, self)
             active_texasholdem_games[self.game.channel_id] = self
         except discord.errors.NotFound:
             print("WARNING: Original game messages not found during 'Play Again' edit for Hold 'em.")
@@ -2284,10 +2284,8 @@ class TexasHoldEmGame:
         self.bot_hole_cards = []
         self.community_cards = []
         
-        # Store references to the three messages
-        self.dealer_message = None
-        self.community_message = None
-        self.player_message = None
+        # Store reference to the single game message
+        self.game_message = None
         
         self.game_phase = "pre_flop" # pre_flop, flop, turn, river, showdown
 
@@ -2364,125 +2362,176 @@ class TexasHoldEmGame:
         self.community_cards = []
         self.game_phase = "pre_flop" # Reset phase
 
-    async def _create_message_payloads(self, reveal_opponent: bool = False) -> tuple:
+    async def _create_combined_holdem_image(self, player_name: str, bot_name: str, player_kekchipz: int, reveal_opponent: bool = False) -> Image.Image:
         """
-        Creates and returns data for three separate Discord messages:
-        1. Bot's hand
-        2. Community cards
-        3. Player's hand
+        Creates a single combined image for Texas Hold 'em, showing dealer's cards,
+        community cards, and player's cards, along with text labels.
 
-        Each payload will be a tuple: (content_string, discord.File, is_placeholder_for_community_cards)
+        Args:
+            player_name (str): The display name of the human player.
+            bot_name (str): The display name of the bot player.
+            player_kekchipz (int): The player's current kekchipz.
+            reveal_opponent (bool): If True, reveals the bot's hole cards.
+
+        Returns:
+            PIL.Image.Image: A Pillow Image object containing the combined game state.
         """
-        # --- 1. Bot's Hand (Dealer) ---
+        # Define image scaling and padding
+        card_scale_factor = 0.4
+        card_overlap_percent = 0.4
+        vertical_padding = 20 # Padding between sections
+        text_padding_x = 10 # Horizontal padding for text
+        text_padding_y = 5 # Vertical padding for text
+
+        # Get individual card images
+        # Bot's hand
         bot_display_card_codes = [card['code'] for card in self.bot_hole_cards if 'code' in card] if reveal_opponent else ["XX", "XX"]
-        bot_image_pil = await create_card_combo_image(','.join(bot_display_card_codes), scale_factor=0.4, overlap_percent=0.4) # Changed scale_factor
-        bot_image_bytes = io.BytesIO()
-        bot_image_pil.save(bot_image_bytes, format='PNG')
-        bot_image_bytes.seek(0)
-        bot_file = discord.File(bot_image_bytes, filename="bot_hole_cards.png")
-        dealer_content = f"**Serene's Hand**"
-        dealer_payload = (dealer_content, bot_file, False)
+        bot_hand_img = await create_card_combo_image(','.join(bot_display_card_codes), scale_factor=card_scale_factor, overlap_percent=card_overlap_percent)
 
-        # --- 2. Community Cards ---
+        # Community cards
         community_card_codes = [card['code'] for card in self.community_cards if 'code' in card]
-        community_file = None
-        community_content = ""
-        is_community_placeholder = False
-
-        if community_card_codes:
-            community_image_pil = await create_card_combo_image(','.join(community_card_codes), scale_factor=0.4, overlap_percent=0.4) # Changed scale_factor
-            community_image_bytes = io.BytesIO()
-            community_image_pil.save(community_image_bytes, format='PNG')
-            community_image_bytes.seek(0)
-            community_file = discord.File(community_image_bytes, filename="community_cards.png")
-            community_content = "**Community Cards**"
-        else:
-            community_content = "Waiting for players..."
-            is_community_placeholder = True # No file will be generated for the placeholder
-        community_payload = (community_content, community_file, is_community_placeholder)
-
-        # --- 3. Player's Hand ---
+        community_img = await create_card_combo_image(','.join(community_card_codes), scale_factor=card_scale_factor, overlap_percent=card_overlap_percent)
+        
+        # Player's hand
         player_card_codes = [card['code'] for card in self.player_hole_cards if 'code' in card]
-        player_image_pil = await create_card_combo_image(','.join(player_card_codes), scale_factor=0.4, overlap_percent=0.4) # Changed scale_factor
-        player_image_bytes = io.BytesIO()
-        player_image_pil.save(player_image_bytes, format='PNG')
-        player_image_bytes.seek(0)
-        player_file = discord.File(player_image_bytes, filename="player_hole_cards.png")
-        player_content = f"**Your Hand**"
-        player_payload = (player_content, player_file, False)
+        player_hand_img = await create_card_combo_image(','.join(player_card_codes), scale_factor=card_scale_factor, overlap_percent=card_overlap_percent)
 
-        return dealer_payload, community_payload, player_payload
-
-    async def _update_display_messages(self, interaction: discord.Interaction, view: TexasHoldEmGameView, reveal_opponent: bool = False):
-        """
-        Sends initial messages or updates existing ones for Texas Hold 'em.
-        This method is called by the game's start_game and button callbacks.
-        """
-        (dealer_content, bot_file, _), (community_content, community_file, is_community_placeholder), (player_content, player_file, _) = \
-            await self._create_message_payloads(reveal_opponent=reveal_opponent)
-
-        # Update or send dealer's message
-        if self.dealer_message:
-            try:
-                await self.dealer_message.edit(content=dealer_content, attachments=[bot_file])
-            except discord.errors.NotFound:
-                print("WARNING: Dealer message not found during edit. Attempting to re-send.")
-                self.dealer_message = await interaction.channel.send(content=dealer_content, files=[bot_file])
-            except Exception as e:
-                print(f"WARNING: Error editing dealer message: {e}")
-        else:
-            self.dealer_message = await interaction.channel.send(content=dealer_content, files=[bot_file])
-
-        # Update or send community cards message
-        if self.community_message:
-            try:
-                if is_community_placeholder:
-                    # If it's a placeholder, ensure no attachments are sent
-                    await self.community_message.edit(content=community_content, attachments=[])
-                else:
-                    # If it's not a placeholder, send the actual community_file
-                    await self.community_message.edit(content=community_content, attachments=[community_file])
-            except discord.errors.NotFound:
-                print("WARNING: Community message not found during edit. Attempting to re-send.")
-                if is_community_placeholder:
-                    self.community_message = await interaction.channel.send(content=community_content)
-                else:
-                    self.community_message = await interaction.channel.send(content=community_content, files=[community_file])
-            except Exception as e:
-                print(f"WARNING: Error editing community message: {e}")
-        else:
-            # Initial send for community cards
-            if is_community_placeholder:
-                self.community_message = await interaction.channel.send(content=community_content) # No file for initial placeholder
+        # Determine overall image dimensions
+        max_width = max(bot_hand_img.width, community_img.width, player_hand_img.width)
+        
+        # Attempt to load a default font. If not available, use ImageFont.load_default()
+        try:
+            # Try a common sans-serif font name. This might not work on all systems.
+            font_path = "arial.ttf" # Example, might need full path or a different font
+            # Check if font file exists, otherwise fallback
+            if os.path.exists(font_path):
+                font_large = ImageFont.truetype(font_path, 24)
+                font_medium = ImageFont.truetype(font_path, 18)
+                font_small = ImageFont.truetype(font_path, 14)
             else:
-                self.community_message = await interaction.channel.send(content=community_content, files=[community_file])
+                raise FileNotFoundError # Force fallback if file not found
+        except (IOError, FileNotFoundError):
+            # Fallback to default Pillow font
+            font_large = ImageFont.load_default()
+            font_medium = ImageFont.load_default()
+            font_small = ImageFont.load_default()
+            print("WARNING: Could not load Arial font. Using default Pillow font.")
 
-        # Update or send player's message (this one also carries the game view)
-        if self.player_message:
+        # Calculate text heights for layout
+        # Use a dummy image and draw object to measure text
+        dummy_img = Image.new('RGBA', (1, 1))
+        dummy_draw = ImageDraw.Draw(dummy_img)
+
+        dealer_text = f"{bot_name}'s Hand"
+        community_text = "Community Cards" if community_card_codes else "Community Cards: (None yet)"
+        player_text = f"{player_name}'s Hand"
+        kekchipz_text = f"Kekchipz: ${player_kekchipz}"
+
+        dealer_text_height = dummy_draw.textbbox((0,0), dealer_text, font=font_medium)[3] - dummy_draw.textbbox((0,0), dealer_text, font=font_medium)[1]
+        community_text_height = dummy_draw.textbbox((0,0), community_text, font=font_medium)[3] - dummy_draw.textbbox((0,0), community_text, font=font_medium)[1]
+        player_text_height = dummy_draw.textbbox((0,0), player_text, font=font_medium)[3] - dummy_draw.textbbox((0,0), player_text, font=font_medium)[1]
+        kekchipz_text_height = dummy_draw.textbbox((0,0), kekchipz_text, font=font_small)[3] - dummy_draw.textbbox((0,0), kekchipz_text, font=font_small)[1]
+
+        # Calculate total height
+        total_height = (
+            dealer_text_height + bot_hand_img.height + vertical_padding +
+            community_text_height + community_img.height + vertical_padding +
+            player_text_height + player_hand_img.height + vertical_padding +
+            kekchipz_text_height + text_padding_y * 2 # For kekchipz text
+        )
+
+        # Create the final combined image with a background
+        # Using a dark green background similar to a poker table
+        combined_image = Image.new('RGB', (max_width + text_padding_x * 2, total_height), (53, 101, 77)) # Dark Green
+
+        draw = ImageDraw.Draw(combined_image)
+
+        current_y_offset = vertical_padding # Start with some top padding
+
+        # Draw Dealer's Hand
+        draw.text((text_padding_x, current_y_offset), dealer_text, font=font_medium, fill=(255, 255, 255)) # White text
+        current_y_offset += dealer_text_height + text_padding_y
+        combined_image.paste(bot_hand_img, (text_padding_x, current_y_offset), bot_hand_img)
+        current_y_offset += bot_hand_img.height + vertical_padding
+
+        # Draw Community Cards
+        draw.text((text_padding_x, current_y_offset), community_text, font=font_medium, fill=(255, 255, 255))
+        current_y_offset += community_text_height + text_padding_y
+        combined_image.paste(community_img, (text_padding_x, current_y_offset), community_img)
+        current_y_offset += community_img.height + vertical_padding
+
+        # Draw Player's Hand
+        draw.text((text_padding_x, current_y_offset), player_text, font=font_medium, fill=(255, 255, 255))
+        current_y_offset += player_text_height + text_padding_y
+        combined_image.paste(player_hand_img, (text_padding_x, current_y_offset), player_hand_img)
+        current_y_offset += player_hand_img.height + vertical_padding
+
+        # Draw Kekchipz
+        draw.text((text_padding_x, current_y_offset), kekchipz_text, font=font_small, fill=(255, 255, 0)) # Yellow text for kekchipz
+
+        return combined_image
+
+    async def _update_display_message(self, interaction: discord.Interaction, view: TexasHoldEmGameView, reveal_opponent: bool = False):
+        """
+        Updates the single game message for Texas Hold 'em with the combined image.
+        Deletes old messages if they exist.
+        """
+        player_kekchipz = await get_user_kekchipz(self.player.guild.id, self.player.id)
+        combined_image_pil = await self._create_combined_holdem_image(
+            self.player.display_name,
+            self.bot_player.display_name,
+            player_kekchipz,
+            reveal_opponent=reveal_opponent
+        )
+
+        combined_image_bytes = io.BytesIO()
+        combined_image_pil.save(combined_image_bytes, format='PNG')
+        combined_image_bytes.seek(0)
+        combined_file = discord.File(combined_image_bytes, filename="texas_holdem_game.png")
+
+        # Delete old messages if they exist
+        for msg_ref in [self.dealer_message, self.community_message, self.player_message]:
+            if msg_ref:
+                try:
+                    await msg_ref.delete()
+                except discord.errors.NotFound:
+                    print(f"WARNING: Old message {msg_ref.id} not found during deletion.")
+                except discord.errors.Forbidden:
+                    print(f"WARNING: Missing permissions to delete old message {msg_ref.id}.")
+                except Exception as e:
+                    print(f"WARNING: Unexpected error deleting old message {msg_ref.id}: {e}")
+
+        # Reset message references
+        self.dealer_message = None
+        self.community_message = None
+        self.player_message = None
+
+        # Send or edit the single game message
+        if self.game_message:
             try:
-                await self.player_message.edit(content=player_content, view=view, attachments=[player_file])
+                await self.game_message.edit(content="", view=view, files=[combined_file], attachments=[])
             except discord.errors.NotFound:
-                print("WARNING: Player message not found during edit. Attempting to re-send.")
-                self.player_message = await interaction.channel.send(content=player_content, view=view, files=[player_file])
+                print("WARNING: Game message not found during edit. Attempting to re-send.")
+                self.game_message = await interaction.channel.send(content="", view=view, files=[combined_file])
             except Exception as e:
-                print(f"WARNING: Error editing player message: {e}")
+                print(f"WARNING: Error editing game message: {e}")
+                self.game_message = await interaction.channel.send(content="An error occurred updating the game display.", view=view, files=[combined_file])
         else:
-            self.player_message = await interaction.channel.send(content=player_content, view=view, files=[player_file])
+            self.game_message = await interaction.channel.send(content="", view=view, files=[combined_file])
 
 
     async def start_game(self, interaction: discord.Interaction):
         """
         Starts the Texas Hold 'em game: shuffles, deals initial hands,
-        and displays the initial state in three separate messages.
+        and displays the initial state in a single message with a combined image.
         """
         random.shuffle(self.deck)
         self.deal_hole_cards() # Deal initial 2 cards to player and bot
 
         game_view = TexasHoldEmGameView(game=self)
         
-        # Send initial messages and store their references
-        # The _update_display_messages will handle sending if messages are None
-        await self._update_display_messages(interaction, game_view)
+        # Send initial message and store its reference
+        await self._update_display_message(interaction, game_view)
 
         active_texasholdem_games[self.channel_id] = game_view
         game_view._enable_next_phase_button("pre_flop") # Enable the first button
