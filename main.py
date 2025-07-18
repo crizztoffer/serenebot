@@ -3,7 +3,6 @@ import random
 import urllib.parse
 import json
 import asyncio
-import requests
 import re # Import the re module for regular expressions
 import io # Import io for in-memory file operations
 from itertools import combinations # Import combinations for poker hand evaluation
@@ -2533,25 +2532,28 @@ class TexasHoldEmGame:
         # Determine overall image dimensions
         max_content_width = max(bot_hand_img.width, community_img.width, player_hand_img.width)
         
-        # Attempt to load a default font. If not available, use ImageFont.load_default()
+        # --- Font Loading ---
+        font_url = "http://serenekeks.com/OpenSans-Regular.ttf"
+        font_large = ImageFont.load_default()
+        font_medium = ImageFont.load_default()
+        font_small = ImageFont.load_default()
+
         try:
-            url = "https://serenekeks.com/OpenSans-Regular.ttf"
-            response = requests.get(url)
-            with open("OpenSans-Regular.ttf", "wb") as f:
-                f.write(response.content)
-                
-            font_path = "Open_Sans_Regular.ttf"
-            if os.path.exists(font_path):
-                font_large = ImageFont.truetype(font_path, 36)
-                font_medium = ImageFont.truetype(font_path, 28)
-                font_small = ImageFont.truetype(font_path, 22)
-            else:
-                raise FileNotFoundError
-        except (IOError, FileNotFoundError):
-            font_large = ImageFont.load_default()
-            font_medium = ImageFont.load_default()
-            font_small = ImageFont.load_default()
-            print("WARNING: Could not load Arial font. Using default Pillow font.")
+            async with aiohttp.ClientSession() as session:
+                async with session.get(font_url) as response:
+                    response.raise_for_status()
+                    font_bytes = await response.read()
+                    font_io = io.BytesIO(font_bytes)
+                    font_large = ImageFont.truetype(font_io, 36)
+                    font_io.seek(0) # Reset buffer for next font size
+                    font_medium = ImageFont.truetype(font_io, 28)
+                    font_io.seek(0)
+                    font_small = ImageFont.truetype(font_io, 22)
+                    print(f"Successfully loaded font from {font_url}")
+        except aiohttp.ClientError as e:
+            print(f"WARNING: Failed to fetch font from {font_url}: {e}. Using default Pillow font.")
+        except Exception as e:
+            print(f"WARNING: Error loading font from bytes: {e}. Using default Pillow font.")
 
         # Calculate text heights for layout
         dummy_img = Image.new('RGBA', (1, 1))
