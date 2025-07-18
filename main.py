@@ -2510,11 +2510,11 @@ class TexasHoldEmGame:
             PIL.Image.Image: A Pillow Image object containing the combined game state.
         """
         # Define image scaling and padding
-        card_scale_factor = 0.75
+        card_scale_factor = 1.0 # Changed to 1.0
         card_overlap_percent = 0.33
-        vertical_padding = 20
-        text_padding_x = 10
-        text_padding_y = 5
+        vertical_padding = 40 # Increased padding
+        text_padding_x = 20 # Increased padding
+        text_padding_y = 10 # Increased padding
 
         # Get individual card images
         # Bot's hand
@@ -2533,7 +2533,7 @@ class TexasHoldEmGame:
         max_content_width = max(bot_hand_img.width, community_img.width, player_hand_img.width)
         
         # --- Font Loading ---
-        font_url = "http://serenekeks.com/OpenSans-Regular.ttf"
+        font_url = "http://serenekeks.com/OpenSans-CondBold.ttf" # Changed font URL
         font_large = ImageFont.load_default()
         font_medium = ImageFont.load_default()
         font_small = ImageFont.load_default()
@@ -2544,16 +2544,20 @@ class TexasHoldEmGame:
                     response.raise_for_status()
                     font_bytes = await response.read()
                     font_io = io.BytesIO(font_bytes)
-                    font_large = ImageFont.truetype(font_io, 36)
+                    # Adjusted font sizes
+                    font_large = ImageFont.truetype(font_io, 48) # Increased size
                     font_io.seek(0) # Reset buffer for next font size
-                    font_medium = ImageFont.truetype(font_io, 28)
+                    font_medium = ImageFont.truetype(font_io, 36) # Increased size
                     font_io.seek(0)
-                    font_small = ImageFont.truetype(font_io, 22)
+                    font_small = ImageFont.truetype(font_io, 28) # Increased size
                     print(f"Successfully loaded font from {font_url}")
         except aiohttp.ClientError as e:
             print(f"WARNING: Failed to fetch font from {font_url}: {e}. Using default Pillow font.")
         except Exception as e:
             print(f"WARNING: Error loading font from bytes: {e}. Using default Pillow font.")
+
+        # Define Discord purple color (R, G, B)
+        discord_purple = (114, 137, 218)
 
         # Calculate text heights for layout
         dummy_img = Image.new('RGBA', (1, 1))
@@ -2621,7 +2625,7 @@ class TexasHoldEmGame:
 
         # Draw Dealer's Hand
         dealer_x_offset = text_padding_x + (max_content_width - bot_hand_img.width) // 2
-        draw.text((dealer_x_offset, current_y_offset), dealer_text, font=font_medium, fill=(255, 255, 255)) # White text
+        draw.text((dealer_x_offset, current_y_offset), dealer_text, font=font_medium, fill=discord_purple) # Discord purple text
         current_y_offset += dealer_text_height + text_padding_y
         combined_image.paste(bot_hand_img, (dealer_x_offset, current_y_offset), bot_hand_img)
         current_y_offset += bot_hand_img.height + vertical_padding
@@ -2633,7 +2637,7 @@ class TexasHoldEmGame:
 
         # Draw Player's Hand
         player_x_offset = text_padding_x + (max_content_width - player_hand_img.width) // 2
-        draw.text((player_x_offset, current_y_offset), player_text, font=font_medium, fill=(255, 255, 255))
+        draw.text((player_x_offset, current_y_offset), player_text, font=font_medium, fill=discord_purple) # Discord purple text
         current_y_offset += player_text_height + text_padding_y
         combined_image.paste(player_hand_img, (player_x_offset, current_y_offset), player_hand_img)
         current_y_offset += player_hand_img.height + vertical_padding
