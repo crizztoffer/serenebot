@@ -3,6 +3,7 @@ import random
 import urllib.parse
 import json
 import asyncio
+import requests
 import re # Import the re module for regular expressions
 import io # Import io for in-memory file operations
 from itertools import combinations # Import combinations for poker hand evaluation
@@ -2534,7 +2535,12 @@ class TexasHoldEmGame:
         
         # Attempt to load a default font. If not available, use ImageFont.load_default()
         try:
-            font_path = "arial.ttf"
+            url = "https://serenekeks.com/Open_Sans_Regular.ttf"
+            response = requests.get(url)
+            with open("Open_Sans_Regular.ttf", "wb") as f:
+                f.write(response.content)
+                
+            font_path = "Open_Sans_Regular.ttf"
             if os.path.exists(font_path):
                 font_large = ImageFont.truetype(font_path, 36)
                 font_medium = ImageFont.truetype(font_path, 28)
