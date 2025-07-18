@@ -2535,9 +2535,9 @@ class TexasHoldEmGame:
         
         # Attempt to load a default font. If not available, use ImageFont.load_default()
         try:
-            url = "https://serenekeks.com/Open_Sans_Regular.ttf"
+            url = "https://serenekeks.com/OpenSans-Regular.ttf"
             response = requests.get(url)
-            with open("Open_Sans_Regular.ttf", "wb") as f:
+            with open("OpenSans-Regular.ttf", "wb") as f:
                 f.write(response.content)
                 
             font_path = "Open_Sans_Regular.ttf"
