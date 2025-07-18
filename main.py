@@ -935,7 +935,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
+                    content=f"🎉 **{winner_player.display_name} wins!** �",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -2035,7 +2035,7 @@ class BlackjackGame:
 
         # Generate player's hand image
         player_card_codes = [card['code'] for card in self.player_hand if 'code' in card]
-        player_image_pil = await create_card_combo_image(','.join(player_card_codes), scale_factor=0.8, overlap_percent=0.4)
+        player_image_pil = await create_card_combo_image(','.join(player_card_codes), scale_factor=0.4, overlap_percent=0.4) # Changed scale_factor
         player_image_bytes = io.BytesIO()
         player_image_pil.save(player_image_bytes, format='PNG')
         player_image_bytes.seek(0) # Rewind to the beginning of the BytesIO object
@@ -2051,7 +2051,7 @@ class BlackjackGame:
                 serene_display_cards_codes.append(self.dealer_hand[0]['code'])
             serene_display_cards_codes.append("XX") # Placeholder for back of card
 
-        serene_image_pil = await create_card_combo_image(','.join(serene_display_cards_codes), scale_factor=0.8, overlap_percent=0.4)
+        serene_image_pil = await create_card_combo_image(','.join(serene_display_cards_codes), scale_factor=0.4, overlap_percent=0.4) # Changed scale_factor
         serene_image_bytes = io.BytesIO()
         serene_image_pil.save(serene_image_bytes, format='PNG')
         serene_image_bytes.seek(0)
@@ -2298,7 +2298,7 @@ class TexasHoldEmGame:
         suits = ['S', 'D', 'C', 'H'] # Spades, Diamonds, Clubs, Hearts
         ranks = {
             'A': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9,
-            '0': 10, 'J': 10, 'Q': 10, 'K': 10 # T for Ten (as per deckofcardsapi.com)
+            '0': 10, 'J': 10, 'Q': 10, 'K': 10 # '0' for Ten (as per deckofcardsapi.com)
         }
         rank_titles = {
             'A': 'Ace', '2': 'Two', '3': 'Three', '4': 'Four', '5': 'Five',
@@ -2375,7 +2375,7 @@ class TexasHoldEmGame:
         """
         # --- 1. Bot's Hand (Dealer) ---
         bot_display_card_codes = [card['code'] for card in self.bot_hole_cards if 'code' in card] if reveal_opponent else ["XX", "XX"]
-        bot_image_pil = await create_card_combo_image(','.join(bot_display_card_codes), scale_factor=0.8, overlap_percent=0.4)
+        bot_image_pil = await create_card_combo_image(','.join(bot_display_card_codes), scale_factor=0.4, overlap_percent=0.4) # Changed scale_factor
         bot_image_bytes = io.BytesIO()
         bot_image_pil.save(bot_image_bytes, format='PNG')
         bot_image_bytes.seek(0)
@@ -2390,7 +2390,7 @@ class TexasHoldEmGame:
         is_community_placeholder = False
 
         if community_card_codes:
-            community_image_pil = await create_card_combo_image(','.join(community_card_codes), scale_factor=0.8, overlap_percent=0.4)
+            community_image_pil = await create_card_combo_image(','.join(community_card_codes), scale_factor=0.4, overlap_percent=0.4) # Changed scale_factor
             community_image_bytes = io.BytesIO()
             community_image_pil.save(community_image_bytes, format='PNG')
             community_image_bytes.seek(0)
@@ -2403,7 +2403,7 @@ class TexasHoldEmGame:
 
         # --- 3. Player's Hand ---
         player_card_codes = [card['code'] for card in self.player_hole_cards if 'code' in card]
-        player_image_pil = await create_card_combo_image(','.join(player_card_codes), scale_factor=0.8, overlap_percent=0.4)
+        player_image_pil = await create_card_combo_image(','.join(player_card_codes), scale_factor=0.4, overlap_percent=0.4) # Changed scale_factor
         player_image_bytes = io.BytesIO()
         player_image_pil.save(player_image_bytes, format='PNG')
         player_image_bytes.seek(0)
