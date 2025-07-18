@@ -935,7 +935,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** �",
+                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -2397,7 +2397,7 @@ class TexasHoldEmGame:
             community_file = discord.File(community_image_bytes, filename="community_cards.png")
             community_content = "**Community Cards**\nThe board"
         else:
-            community_content = "Waiting for players..."
+            community_content = "**Community Cards**\nCommunity Cards will appear here (waiting for flop...)"
             is_community_placeholder = True # No file will be generated for the placeholder
         community_payload = (community_content, community_file, is_community_placeholder)
 
@@ -2460,14 +2460,17 @@ class TexasHoldEmGame:
         # Update or send player's message (this one also carries the game view)
         if self.player_message:
             try:
+                # When editing, we don't change ephemeral status, but it will retain it if initially sent as such
                 await self.player_message.edit(content=player_content, view=view, attachments=[player_file])
             except discord.errors.NotFound:
-                print("WARNING: Player message not found during edit. Attempting to re-send.")
-                self.player_message = await interaction.channel.send(content=player_content, view=view, files=[player_file])
+                print("WARNING: Player message not found during edit. Attempting to re-send as ephemeral.")
+                # If the message was deleted or lost, re-send it as ephemeral
+                self.player_message = await interaction.channel.send(content=player_content, view=view, files=[player_file], ephemeral=True)
             except Exception as e:
                 print(f"WARNING: Error editing player message: {e}")
         else:
-            self.player_message = await interaction.channel.send(content=player_content, view=view, files=[player_file])
+            # Initial send of player's message - make it ephemeral
+            self.player_message = await interaction.channel.send(content=player_content, view=view, files=[player_file], ephemeral=True)
 
 
     async def start_game(self, interaction: discord.Interaction):
