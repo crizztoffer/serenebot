@@ -2397,7 +2397,7 @@ class TexasHoldEmGame:
             community_file = discord.File(community_image_bytes, filename="community_cards.png")
             community_content = "**Community Cards**\nThe board"
         else:
-            community_content = "**Community Cards**\nCommunity Cards will appear here (waiting for flop...)"
+            community_content = "Waiting for players..."
             is_community_placeholder = True # No file will be generated for the placeholder
         community_payload = (community_content, community_file, is_community_placeholder)
 
