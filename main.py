@@ -949,7 +949,7 @@ class TicTacToeView(discord.ui.View):
             elif self._check_draw():
                 await update_user_kekchipz(interaction.guild.id, interaction.user.id, 25) # Human player gets kekchipz for a draw
                 await interaction.edit_original_response(
-                    content="It's a **draw!** 🤝",
+                    content="It's a **draw!** �",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -2272,6 +2272,7 @@ class TexasHoldEmGameView(discord.ui.View):
 
     def _add_initial_buttons(self):
         """Adds the initial set of buttons for the pre-flop phase."""
+        self.clear_items() # Add this line to ensure the view is empty before adding buttons
         # Row 0: Raise, Call, Check, Fold
         self.add_item(discord.ui.Button(label="Raise", style=discord.ButtonStyle.green, custom_id="holdem_raise_main", row=0))
         self.add_item(discord.ui.Button(label="Call", style=discord.ButtonStyle.blurple, custom_id="holdem_call_main", row=0))
