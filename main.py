@@ -2489,22 +2489,8 @@ class TexasHoldEmGame:
         combined_image_bytes.seek(0)
         combined_file = discord.File(combined_image_bytes, filename="texas_holdem_game.png")
 
-        # Delete old messages if they exist
-        for msg_ref in [self.dealer_message, self.community_message, self.player_message]:
-            if msg_ref:
-                try:
-                    await msg_ref.delete()
-                except discord.errors.NotFound:
-                    print(f"WARNING: Old message {msg_ref.id} not found during deletion.")
-                except discord.errors.Forbidden:
-                    print(f"WARNING: Missing permissions to delete old message {msg_ref.id}.")
-                except Exception as e:
-                    print(f"WARNING: Unexpected error deleting old message {msg_ref.id}: {e}")
-
-        # Reset message references
-        self.dealer_message = None
-        self.community_message = None
-        self.player_message = None
+        # Removed the loop that attempted to delete non-existent old message attributes.
+        # The game now uses a single game_message for display.
 
         # Send or edit the single game message
         if self.game_message:
