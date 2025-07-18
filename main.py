@@ -937,7 +937,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** �",
+                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -2364,6 +2364,7 @@ class TexasHoldEmGameView(discord.ui.View):
         button.disabled = True # Disable this button immediately
         await interaction.response.edit_message(view=self) # Send immediate update
 
+        self.game.game_phase = "showdown" # Set game phase to showdown
         self._end_game_buttons() # Disable all game buttons, enable Play Again
         await self.game._update_display_message(interaction, self, reveal_opponent=True)
         del active_texasholdem_games[self.game.channel_id]
