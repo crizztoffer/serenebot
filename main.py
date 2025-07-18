@@ -2397,7 +2397,8 @@ class TexasHoldEmGame:
         player_hand_img = await create_card_combo_image(','.join(player_card_codes), scale_factor=card_scale_factor, overlap_percent=card_overlap_percent)
 
         # Determine overall image dimensions
-        max_width = max(bot_hand_img.width, community_img.width, player_hand_img.width)
+        # Max width will be determined by the widest element, likely community cards if many
+        max_content_width = max(bot_hand_img.width, community_img.width, player_hand_img.width)
         
         # Attempt to load a default font. If not available, use ImageFont.load_default()
         try:
@@ -2405,9 +2406,9 @@ class TexasHoldEmGame:
             font_path = "arial.ttf" # Example, might need full path or a different font
             # Check if font file exists, otherwise fallback
             if os.path.exists(font_path):
-                font_large = ImageFont.truetype(font_path, 30) # Increased from 24 to 30
-                font_medium = ImageFont.truetype(font_path, 24) # Increased from 18 to 24
-                font_small = ImageFont.truetype(font_path, 18) # Increased from 14 to 18
+                font_large = ImageFont.truetype(font_path, 36) # Increased from 30 to 36
+                font_medium = ImageFont.truetype(font_path, 28) # Increased from 24 to 28
+                font_small = ImageFont.truetype(font_path, 22) # Increased from 18 to 22
             else:
                 raise FileNotFoundError # Force fallback if file not found
         except (IOError, FileNotFoundError):
@@ -2441,32 +2442,41 @@ class TexasHoldEmGame:
         )
 
         # Create the final combined image with a transparent background
-        combined_image = Image.new('RGBA', (max_width + text_padding_x * 2, total_height), (0, 0, 0, 0)) # Transparent background
+        combined_image = Image.new('RGBA', (max_content_width + text_padding_x * 2, total_height), (0, 0, 0, 0)) # Transparent background
 
         draw = ImageDraw.Draw(combined_image)
 
         current_y_offset = vertical_padding # Start with some top padding
 
         # Draw Dealer's Hand
-        draw.text((text_padding_x, current_y_offset), dealer_text, font=font_medium, fill=(255, 255, 255)) # White text
+        # Calculate x_offset to center dealer's hand relative to max_content_width
+        dealer_x_offset = text_padding_x + (max_content_width - bot_hand_img.width) // 2
+        draw.text((dealer_x_offset, current_y_offset), dealer_text, font=font_medium, fill=(255, 255, 255)) # White text
         current_y_offset += dealer_text_height + text_padding_y
-        combined_image.paste(bot_hand_img, (text_padding_x, current_y_offset), bot_hand_img)
+        combined_image.paste(bot_hand_img, (dealer_x_offset, current_y_offset), bot_hand_img)
         current_y_offset += bot_hand_img.height + vertical_padding
 
         # Draw Community Cards
-        draw.text((text_padding_x, current_y_offset), community_text, font=font_medium, fill=(255, 255, 255))
+        # Community cards are already centered by max_content_width calculation
+        community_x_offset = text_padding_x + (max_content_width - community_img.width) // 2
+        draw.text((community_x_offset, current_y_offset), community_text, font=font_medium, fill=(255, 255, 255))
         current_y_offset += community_text_height + text_padding_y
-        combined_image.paste(community_img, (text_padding_x, current_y_offset), community_img)
+        combined_image.paste(community_img, (community_x_offset, current_y_offset), community_img)
         current_y_offset += community_img.height + vertical_padding
 
         # Draw Player's Hand
-        draw.text((text_padding_x, current_y_offset), player_text, font=font_medium, fill=(255, 255, 255))
+        # Calculate x_offset to center player's hand relative to max_content_width
+        player_x_offset = text_padding_x + (max_content_width - player_hand_img.width) // 2
+        draw.text((player_x_offset, current_y_offset), player_text, font=font_medium, fill=(255, 255, 255))
         current_y_offset += player_text_height + text_padding_y
-        combined_image.paste(player_hand_img, (text_padding_x, current_y_offset), player_hand_img)
+        combined_image.paste(player_hand_img, (player_x_offset, current_y_offset), player_hand_img)
         current_y_offset += player_hand_img.height + vertical_padding
 
         # Draw Kekchipz
-        draw.text((text_padding_x, current_y_offset), kekchipz_text, font=font_small, fill=(255, 255, 0)) # Yellow text for kekchipz
+        # Center kekchipz text as well
+        kekchipz_text_width = dummy_draw.textbbox((0,0), kekchipz_text, font=font_small)[2] - dummy_draw.textbbox((0,0), kekchipz_text, font=font_small)[0]
+        kekchipz_x_offset = text_padding_x + (max_content_width - kekchipz_text_width) // 2
+        draw.text((kekchipz_x_offset, current_y_offset), kekchipz_text, font=font_small, fill=(255, 255, 0)) # Yellow text for kekchipz
 
         return combined_image
 
