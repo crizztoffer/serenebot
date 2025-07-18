@@ -553,8 +553,8 @@ class JeopardyGameView(discord.ui.View):
         # Increased timeout to 15 minutes (900 seconds)
         super().__init__(timeout=900)
         self.game = game # Reference to the NewJeopardyGame instance
-        self._selected_category = None # Stores the category selected by the user
-        self._selected_value = None # Stores the value selected by the user
+        self.message = None # To store the message containing the board UI
+        self.play_again_timeout_task = None # To store the task for the "Play Again" timeout
 
     def add_board_components(self):
         """
@@ -2371,11 +2371,13 @@ class TexasHoldEmGameView(discord.ui.View):
                 print(f"DEBUG: Not player's turn for raise_main_callback. User: {interaction.user.id}, Player: {self.game.player.id}")
                 return
             
+            await interaction.response.defer() # Acknowledge the interaction
+            print(f"DEBUG: Interaction deferred in raise_main_callback.")
+
             self.game.current_bet_buttons_visible = True
             self._set_button_states(self.game.game_phase, betting_buttons_visible=True)
             print(f"DEBUG: After _set_button_states in raise_main_callback. g_total: {self.game.g_total}")
-            # Use edit_original_response as interaction was deferred in game_command
-            await interaction.response.edit_message(view=self) 
+            
             await self.game._update_display_message(interaction, self)
             print(f"DEBUG: End of raise_main_callback.")
         except Exception as e: # Catch any exception
