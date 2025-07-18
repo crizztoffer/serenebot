@@ -23,7 +23,7 @@ intents.presences = True
 intents.message_content = True
 
 # Initialize the bot
-bot = commands.Bot(command_prefix='!', intents=intents)
+bot = commands.Commands.Bot(command_prefix='!', intents=intents)
 
 # --- Game State Storage ---
 active_tictactoe_games = {}
@@ -744,7 +744,7 @@ class TicTacToeButton(discord.ui.Button):
                 await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
             await interaction.edit_original_response(
-                content=f"🎉 **{winner_player.display_name} wins!** 🎉",
+                content=f"🎉 **{winner_player.display_name} wins!** �",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
