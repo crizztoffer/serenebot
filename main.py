@@ -515,11 +515,11 @@ class CategoryValueSelect(discord.ui.Select):
                 # Determine the content for the new board message based on the game phase
                 board_message_content = ""
                 if game.game_phase == "NORMAL_JEOPARDY":
-                    board_message_content = f"**{game.player.display_name}**'s Score: **{'-' if game.score < 0 else ''}${abs(game.score)}**\n\n" \
-                                            "Select a category and value from the dropdowns below!"
+                    board_message_content = f"**{game.player.display_name}**'s Score: **{'-' if game.score < 0 else ''}${abs(jeopardy_game.score)}**\n\n"
+                        "Select a category and value from the dropdowns below!"
                 elif game.game_phase == "DOUBLE_JEOPARDY":
-                    board_message_content = f"**{game.player.display_name}**'s Score: **{'-' if game.score < 0 else ''}${abs(game.score)}**\n\n" \
-                                            "**Double Jeopardy!** Select a category and value from the dropdowns below!"
+                    board_message_content = f"**{game.player.display_name}**'s Score: **{'-' if game.score < 0 else ''}${abs(jeopardy_game.score)}**\n\n"
+                        "**Double Jeopardy!** Select a category and value from the dropdowns below!"
                 
                 if board_message_content: # Only send if there's content (i.e., not Final Jeopardy yet)
                     game.board_message = await interaction.channel.send(
@@ -2514,7 +2514,7 @@ class TexasHoldEmGame:
         card_overlap_percent = 0.33
         vertical_padding = 40 # Increased padding
         text_padding_x = 20 # Increased padding
-        text_padding_y = 10 # Increased padding
+        text_padding_y = 20 # Increased padding to move text higher from cards
 
         # Get individual card images
         # Bot's hand
@@ -2529,9 +2529,6 @@ class TexasHoldEmGame:
         player_card_codes = [card['code'] for card in self.player_hole_cards if 'code' in card]
         player_hand_img = await create_card_combo_image(','.join(player_card_codes), scale_factor=card_scale_factor, overlap_percent=card_overlap_percent)
 
-        # Determine overall image dimensions
-        max_content_width = max(bot_hand_img.width, community_img.width, player_hand_img.width)
-        
         # --- Font Loading ---
         font_url = "http://serenekeks.com/OpenSans-CondBold.ttf" # Changed font URL
         font_large = ImageFont.load_default()
@@ -2559,11 +2556,11 @@ class TexasHoldEmGame:
         # Define Discord purple color (R, G, B)
         discord_purple = (114, 137, 218)
 
-        # Calculate text heights for layout
+        # Calculate text heights and widths for layout
         dummy_img = Image.new('RGBA', (1, 1))
         dummy_draw = ImageDraw.Draw(dummy_img)
 
-        dealer_text = f"{bot_name}'s Hand"
+        dealer_text = "Serene's Hand" # Changed dealer's hand text
         player_text = f"{player_name}'s Hand"
         
         # Determine showdown result if applicable
@@ -2585,7 +2582,7 @@ class TexasHoldEmGame:
                 # Award kekchipz to player
                 await update_user_kekchipz(self.player.guild.id, self.player.id, 200) # Example: 200 kekchipz for winning
             elif comparison < 0:
-                showdown_result_text = f"🤖 {bot_name} wins with {bot_hand_name}! 🤖"
+                showdown_result_text = f"🤖 Serene wins with {bot_hand_name}! 🤖" # Changed Serene win text
                 # Deduct kekchipz from player
                 await update_user_kekchipz(self.player.guild.id, self.player.id, -100) # Example: -100 kekchipz for losing
             else:
@@ -2593,22 +2590,46 @@ class TexasHoldEmGame:
                 # Small kekchipz for tie
                 await update_user_kekchipz(self.player.guild.id, self.player.id, 50) # Example: 50 kekchipz for a tie
 
+        # Calculate text dimensions
+        showdown_text_width = 0
         showdown_text_height = 0
         if showdown_result_text:
-            showdown_text_height = dummy_draw.textbbox((0,0), showdown_result_text, font=font_large)[3] - dummy_draw.textbbox((0,0), showdown_result_text, font=font_large)[1]
+            bbox = dummy_draw.textbbox((0,0), showdown_result_text, font=font_large)
+            showdown_text_width = bbox[2] - bbox[0]
+            showdown_text_height = bbox[3] - bbox[1]
 
-        dealer_text_height = dummy_draw.textbbox((0,0), dealer_text, font=font_medium)[3] - dummy_draw.textbbox((0,0), dealer_text, font=font_medium)[1]
-        player_text_height = dummy_draw.textbbox((0,0), player_text, font=font_medium)[3] - dummy_draw.textbbox((0,0), player_text, font=font_medium)[1]
+        bbox = dummy_draw.textbbox((0,0), dealer_text, font=font_medium)
+        dealer_text_width = bbox[2] - bbox[0]
+        dealer_text_height = bbox[3] - bbox[1]
+
+        bbox = dummy_draw.textbbox((0,0), player_text, font=font_medium)
+        player_text_width = bbox[2] - bbox[0]
+        player_text_height = bbox[3] - bbox[1]
+        
+        # Determine overall image dimensions
+        # Max content width must account for both card images and text labels
+        max_content_width = max(
+            bot_hand_img.width,
+            community_img.width,
+            player_hand_img.width,
+            showdown_text_width,
+            dealer_text_width,
+            player_text_width
+        )
         
         # Calculate total height
         total_height = (
-            showdown_text_height + vertical_padding + # Added showdown text height
-            dealer_text_height + bot_hand_img.height + vertical_padding +
-            community_img.height + vertical_padding + # Removed community text height
-            player_text_height + player_hand_img.height + vertical_padding
+            vertical_padding + # Top padding
+            showdown_text_height + text_padding_y + # Showdown text and its padding
+            dealer_text_height + text_padding_y + # Dealer text and its padding
+            bot_hand_img.height + vertical_padding + # Dealer cards and padding
+            community_img.height + vertical_padding + # Community cards and padding
+            player_text_height + text_padding_y + # Player text and its padding
+            player_hand_img.height + vertical_padding # Player cards and bottom padding
         )
 
         # Create the final combined image with a transparent background
+        # Add extra padding to the overall width to ensure text fits
         combined_image = Image.new('RGBA', (max_content_width + text_padding_x * 2, total_height), (0, 0, 0, 0)) # Transparent background
 
         draw = ImageDraw.Draw(combined_image)
@@ -2617,29 +2638,34 @@ class TexasHoldEmGame:
 
         # Draw Showdown Result if applicable
         if showdown_result_text:
-            showdown_text_width = dummy_draw.textbbox((0,0), showdown_result_text, font=font_large)[2] - dummy_draw.textbbox((0,0), showdown_result_text, font=font_large)[0]
-            showdown_x_offset = text_padding_x + (max_content_width - showdown_text_width) // 2
+            showdown_x_offset = (combined_image.width - showdown_text_width) // 2
             draw.text((showdown_x_offset, current_y_offset), showdown_result_text, font=font_large, fill=(255, 255, 0)) # Yellow for result
-            current_y_offset += showdown_text_height + vertical_padding
+            current_y_offset += showdown_text_height + text_padding_y
 
 
-        # Draw Dealer's Hand
-        dealer_x_offset = text_padding_x + (max_content_width - bot_hand_img.width) // 2
-        draw.text((dealer_x_offset, current_y_offset), dealer_text, font=font_medium, fill=discord_purple) # Discord purple text
-        current_y_offset += dealer_text_height + text_padding_y
-        combined_image.paste(bot_hand_img, (dealer_x_offset, current_y_offset), bot_hand_img)
+        # Draw Dealer's Hand text
+        dealer_text_x_offset = (combined_image.width - dealer_text_width) // 2
+        draw.text((dealer_text_x_offset, current_y_offset), dealer_text, font=font_medium, fill=discord_purple) # Discord purple text
+        current_y_offset += dealer_text_height + text_padding_y # Increased padding
+
+        # Paste Dealer's Hand image
+        dealer_img_x_offset = (combined_image.width - bot_hand_img.width) // 2
+        combined_image.paste(bot_hand_img, (dealer_img_x_offset, current_y_offset), bot_hand_img)
         current_y_offset += bot_hand_img.height + vertical_padding
 
-        # Draw Community Cards (no text label)
-        community_x_offset = text_padding_x + (max_content_width - community_img.width) // 2
-        combined_image.paste(community_img, (community_x_offset, current_y_offset), community_img)
+        # Paste Community Cards (no text label)
+        community_img_x_offset = (combined_image.width - community_img.width) // 2
+        combined_image.paste(community_img, (community_img_x_offset, current_y_offset), community_img)
         current_y_offset += community_img.height + vertical_padding
 
-        # Draw Player's Hand
-        player_x_offset = text_padding_x + (max_content_width - player_hand_img.width) // 2
-        draw.text((player_x_offset, current_y_offset), player_text, font=font_medium, fill=discord_purple) # Discord purple text
-        current_y_offset += player_text_height + text_padding_y
-        combined_image.paste(player_hand_img, (player_x_offset, current_y_offset), player_hand_img)
+        # Draw Player's Hand text
+        player_text_x_offset = (combined_image.width - player_text_width) // 2
+        draw.text((player_text_x_offset, current_y_offset), player_text, font=font_medium, fill=discord_purple) # Discord purple text
+        current_y_offset += player_text_height + text_padding_y # Increased padding
+
+        # Paste Player's Hand image
+        player_img_x_offset = (combined_image.width - player_hand_img.width) // 2
+        combined_image.paste(player_hand_img, (player_img_x_offset, current_y_offset), player_hand_img)
         current_y_offset += player_hand_img.height + vertical_padding
 
         return combined_image
