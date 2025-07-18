@@ -935,7 +935,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
+                    content=f"🎉 **{winner_player.display_name} wins!** �",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -2440,9 +2440,8 @@ class TexasHoldEmGame:
             kekchipz_text_height + text_padding_y * 2 # For kekchipz text
         )
 
-        # Create the final combined image with a background
-        # Using a dark green background similar to a poker table
-        combined_image = Image.new('RGB', (max_width + text_padding_x * 2, total_height), (53, 101, 77)) # Dark Green
+        # Create the final combined image with a transparent background
+        combined_image = Image.new('RGBA', (max_width + text_padding_x * 2, total_height), (0, 0, 0, 0)) # Transparent background
 
         draw = ImageDraw.Draw(combined_image)
 
@@ -2489,13 +2488,11 @@ class TexasHoldEmGame:
         combined_image_bytes.seek(0)
         combined_file = discord.File(combined_image_bytes, filename="texas_holdem_game.png")
 
-        # Removed the loop that attempted to delete non-existent old message attributes.
-        # The game now uses a single game_message for display.
-
         # Send or edit the single game message
         if self.game_message:
             try:
-                await self.game_message.edit(content="", view=view, files=[combined_file], attachments=[])
+                # Use 'attachments' keyword argument instead of 'files'
+                await self.game_message.edit(content="", view=view, attachments=[combined_file])
             except discord.errors.NotFound:
                 print("WARNING: Game message not found during edit. Attempting to re-send.")
                 self.game_message = await interaction.channel.send(content="", view=view, files=[combined_file])
