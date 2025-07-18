@@ -782,7 +782,7 @@ class TicTacToeView(discord.ui.View):
         super().__init__(timeout=300) # Game times out after 5 minutes of inactivity
         self.players = {"X": player_x, "O": player_o}
         self.current_player = "X"
-        self.board = [[" ", " ", " "], [" ", " ", " "], [" ", " ", " "]] # Internal board uses " " for empty
+        self.board = [[" ", " ", ""], [" ", " ", " "], [" ", " ", " "]] # Internal board uses " " for empty
         self.message = None # To store the message containing the board
 
         self._create_board()
@@ -944,7 +944,7 @@ class TicTacToeView(discord.ui.View):
             elif self._check_draw():
                 await update_user_kekchipz(interaction.guild.id, interaction.user.id, 25) # Human player gets kekchipz for a draw
                 await interaction.edit_original_response(
-                    content="It's a **draw!** 🤝",
+                    content="It's a **draw!** �",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -1731,6 +1731,7 @@ class BlackjackGameView(discord.ui.View):
         super().__init__(timeout=300) # Game times out after 5 minutes of inactivity
         self.game = game # Reference to the BlackjackGame instance
         self.message = None # To store the message containing the game UI
+        self.play_again_timeout_task = None # To store the task for the "Play Again" timeout
 
     async def _update_game_message(self, embed: discord.Embed, player_file: discord.File, dealer_file: discord.File, view_to_use: discord.ui.View = None):
         """Helper to update the main game message by editing the original response, including image files."""
@@ -1756,6 +1757,45 @@ class BlackjackGameView(discord.ui.View):
                 item.disabled = (game_state != "playing")
             elif item.custom_id == "blackjack_play_again":
                 item.disabled = (game_state != "game_over") # Enabled only when game is over
+        
+        # Manage the "Play Again" timeout task
+        if game_state == "game_over":
+            if self.play_again_timeout_task and not self.play_again_timeout_task.done():
+                self.play_again_timeout_task.cancel() # Cancel any existing task
+            self.play_again_timeout_task = bot.loop.create_task(self._handle_play_again_timeout())
+        elif self.play_again_timeout_task and not self.play_again_timeout_task.done():
+            self.play_again_timeout_task.cancel() # Cancel if game is no longer over
+
+    async def _handle_play_again_timeout(self):
+        """Handles the timeout for the 'Play Again' button."""
+        try:
+            await asyncio.sleep(10) # Wait for 10 seconds
+            
+            # If we reach here, the "Play Again" button was not pressed in time
+            if self.game.channel_id in active_blackjack_games:
+                # Disable all buttons
+                for item in self.children:
+                    item.disabled = True
+                
+                # Update the message to indicate timeout
+                if self.message:
+                    try:
+                        await self.message.edit(content="Blackjack game ended due to inactivity (Play Again not pressed).", view=self, embed=self.message.embed)
+                    except discord.errors.NotFound:
+                        print("WARNING: Game message not found during play again timeout, likely already deleted.")
+                    except Exception as e:
+                        print(f"WARNING: An error occurred editing game message on play again timeout: {e}")
+                
+                # Clean up the game state
+                del active_blackjack_games[self.game.channel_id]
+                self.stop() # Stop the view's main timeout as well
+                print(f"Blackjack game in channel {self.game.channel_id} ended due to Play Again timeout.")
+        except asyncio.CancelledError:
+            # Task was cancelled because "Play Again" was clicked
+            print(f"Play Again timeout task for channel {self.game.channel_id} cancelled.")
+        except Exception as e:
+            print(f"An unexpected error occurred in _handle_play_again_timeout: {e}")
+
 
     async def on_timeout(self):
         """Called when the view times out due to inactivity."""
@@ -1768,7 +1808,7 @@ class BlackjackGameView(discord.ui.View):
             except discord.errors.NotFound:
                 print("WARNING: Game message not found during timeout, likely already deleted.")
             except Exception as e:
-                print(f"WARNING: An error occurred editing game message on timeout: {e}")
+                print(f"WARNING: An error occurred editing board message on timeout: {e}")
         
         if self.game.channel_id in active_blackjack_games:
             # We don't delete the game from active_blackjack_games here,
@@ -1800,6 +1840,9 @@ class BlackjackGameView(discord.ui.View):
             embed.set_footer(text="BUST! Serene wins.")
             await self._update_game_message(embed, player_file, dealer_file, self) # Use helper
             await update_user_kekchipz(interaction.guild.id, interaction.user.id, -50)
+            # Game is over, cancel any pending play_again_timeout_task
+            if self.play_again_timeout_task and not self.play_again_timeout_task.done():
+                self.play_again_timeout_task.cancel()
             del active_blackjack_games[self.game.channel_id]
         else:
             self._set_button_states("playing") # Set buttons for continuing game
@@ -1851,6 +1894,9 @@ class BlackjackGameView(discord.ui.View):
         embed.set_footer(text=result_message)
         await self._update_game_message(embed, player_file, dealer_file, self) # Use helper
         await update_user_kekchipz(interaction.guild.id, interaction.user.id, kekchipz_change)
+        # Game is over, cancel any pending play_again_timeout_task
+        if self.play_again_timeout_task and not self.play_again_timeout_task.done():
+            self.play_again_timeout_task.cancel()
         del active_blackjack_games[self.game.channel_id]
 
     @discord.ui.button(label="Play Again", style=discord.ButtonStyle.blurple, custom_id="blackjack_play_again", disabled=True)
@@ -1859,6 +1905,11 @@ class BlackjackGameView(discord.ui.View):
         if interaction.user.id != self.game.player.id:
             await interaction.response.send_message("This is not your Blackjack game!", ephemeral=True)
             return
+
+        # Cancel the play_again_timeout_task if it's running
+        if self.play_again_timeout_task and not self.play_again_timeout_task.done():
+            self.play_again_timeout_task.cancel()
+            self.play_again_timeout_task = None # Clear the reference
 
         # Disable Play Again button immediately
         button.disabled = True
