@@ -2298,11 +2298,11 @@ class TexasHoldEmGame:
         suits = ['S', 'D', 'C', 'H'] # Spades, Diamonds, Clubs, Hearts
         ranks = {
             'A': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9,
-            'T': 10, 'J': 10, 'Q': 10, 'K': 10 # T for Ten (as per deckofcardsapi.com)
+            '0': 10, 'J': 10, 'Q': 10, 'K': 10 # T for Ten (as per deckofcardsapi.com)
         }
         rank_titles = {
             'A': 'Ace', '2': 'Two', '3': 'Three', '4': 'Four', '5': 'Five',
-            '6': 'Six', '7': 'Seven', '8': 'Eight', '9': 'Nine', 'T': 'Ten',
+            '6': 'Six', '7': 'Seven', '8': 'Eight', '9': 'Nine', '0': 'Ten',
             'J': 'Jack', 'Q': 'Queen', 'K': 'King'
         }
         suit_titles = {
@@ -2364,18 +2364,14 @@ class TexasHoldEmGame:
         self.community_cards = []
         self.game_phase = "pre_flop" # Reset phase
 
-    async def _create_game_embed_with_images(self, reveal_opponent: bool = False) -> tuple:
+    async def _create_message_payloads(self, reveal_opponent: bool = False) -> tuple:
         """
         Creates and returns data for three separate Discord messages:
-        1. Bot's hand (thumbnail)
-        2. Community cards (main image)
-        3. Player's hand (main image) + game control buttons (view)
+        1. Bot's hand
+        2. Community cards
+        3. Player's hand
 
-        :param reveal_opponent: If True, reveals the bot's hole cards.
-        :return: A tuple containing three tuples:
-                 (dealer_embed, dealer_file),
-                 (community_embed, community_file),
-                 (player_embed, player_file)
+        Each payload will be a tuple: (content_string, discord.File, is_placeholder_for_community_cards)
         """
         # --- 1. Bot's Hand (Dealer) ---
         bot_display_card_codes = [card['code'] for card in self.bot_hole_cards if 'code' in card] if reveal_opponent else ["XX", "XX"]
@@ -2384,24 +2380,14 @@ class TexasHoldEmGame:
         bot_image_pil.save(bot_image_bytes, format='PNG')
         bot_image_bytes.seek(0)
         bot_file = discord.File(bot_image_bytes, filename="bot_hole_cards.png")
-
-        dealer_embed = discord.Embed(
-            title="Serene's Hand",
-            description="Bot's hole cards",
-            color=discord.Color.red()
-        )
-        dealer_embed.set_image(url="attachment://bot_hole_cards.png") # Use set_image for larger display
-        dealer_embed.set_footer(text=f"Game Phase: {self.game_phase.replace('_', ' ').title()}")
-
+        dealer_content = f"**Serene's Hand**\nBot's hole cards\nGame Phase: {self.game_phase.replace('_', ' ').title()}"
+        dealer_payload = (dealer_content, bot_file, False)
 
         # --- 2. Community Cards ---
         community_card_codes = [card['code'] for card in self.community_cards if 'code' in card]
         community_file = None
-        community_embed = discord.Embed(
-            title="Community Cards",
-            description="The board",
-            color=discord.Color.gold()
-        )
+        community_content = ""
+        is_community_placeholder = False
 
         if community_card_codes:
             community_image_pil = await create_card_combo_image(','.join(community_card_codes), scale_factor=0.8, overlap_percent=0.4)
@@ -2409,35 +2395,11 @@ class TexasHoldEmGame:
             community_image_pil.save(community_image_bytes, format='PNG')
             community_image_bytes.seek(0)
             community_file = discord.File(community_image_bytes, filename="community_cards.png")
-            community_embed.set_image(url="attachment://community_cards.png")
+            community_content = "**Community Cards**\nThe board"
         else:
-            # Placeholder for community cards
-            placeholder_text = "Community Cards will appear here."
-            # Create a blank image with text for the placeholder
-            img_width, img_height = 300, 100 # Example dimensions
-            placeholder_img = Image.new('RGBA', (img_width, img_height), (0, 0, 0, 0)) # Transparent background
-            draw = ImageDraw.Draw(placeholder_img)
-            try:
-                font = ImageFont.truetype("arial.ttf", 20) # Use a common font
-            except IOError:
-                font = ImageFont.load_default() # Fallback if font not found
-            
-            # Calculate text size and position to center it
-            text_bbox = draw.textbbox((0,0), placeholder_text, font=font)
-            text_width = text_bbox[2] - text_bbox[0]
-            text_height = text_bbox[3] - text_bbox[1]
-            x = (img_width - text_width) / 2
-            y = (img_height - text_height) / 2
-            
-            draw.text((x, y), placeholder_text, font=font, fill=(255, 255, 255, 255)) # White text
-            
-            placeholder_bytes = io.BytesIO()
-            placeholder_img.save(placeholder_bytes, format='PNG')
-            placeholder_bytes.seek(0)
-            community_file = discord.File(placeholder_bytes, filename="community_cards_placeholder.png")
-            community_embed.set_image(url="attachment://community_cards_placeholder.png")
-            community_embed.description = "Waiting for flop..."
-
+            community_content = "**Community Cards**\nCommunity Cards will appear here (waiting for flop...)"
+            is_community_placeholder = True # No file will be generated for the placeholder
+        community_payload = (community_content, community_file, is_community_placeholder)
 
         # --- 3. Player's Hand ---
         player_card_codes = [card['code'] for card in self.player_hole_cards if 'code' in card]
@@ -2446,65 +2408,66 @@ class TexasHoldEmGame:
         player_image_pil.save(player_image_bytes, format='PNG')
         player_image_bytes.seek(0)
         player_file = discord.File(player_image_bytes, filename="player_hole_cards.png")
+        player_content = f"**{self.player.display_name}'s Hand**\nYour hole cards\nCurrent Turn: {self.player.display_name}"
+        player_payload = (player_content, player_file, False)
 
-        player_embed = discord.Embed(
-            title=f"{self.player.display_name}'s Hand",
-            description="Your hole cards",
-            color=discord.Color.blue()
-        )
-        player_embed.set_image(url="attachment://player_hole_cards.png")
-        player_embed.set_footer(text=f"Current Turn: {self.player.display_name}")
-
-        return (dealer_embed, bot_file), (community_embed, community_file), (player_embed, player_file)
+        return dealer_payload, community_payload, player_payload
 
     async def _update_display_messages(self, interaction: discord.Interaction, view: TexasHoldEmGameView, reveal_opponent: bool = False):
         """
         Sends initial messages or updates existing ones for Texas Hold 'em.
         This method is called by the game's start_game and button callbacks.
         """
-        (dealer_embed, bot_file), (community_embed, community_file), (player_embed, player_file) = \
-            await self._create_game_embed_with_images(reveal_opponent=reveal_opponent)
-
-        # List of files to send with each message
-        dealer_files = [bot_file]
-        community_files = [community_file] if community_file else []
-        player_files = [player_file]
+        (dealer_content, bot_file, _), (community_content, community_file, is_community_placeholder), (player_content, player_file, _) = \
+            await self._create_message_payloads(reveal_opponent=reveal_opponent)
 
         # Update or send dealer's message
         if self.dealer_message:
             try:
-                await self.dealer_message.edit(embed=dealer_embed, attachments=dealer_files)
+                await self.dealer_message.edit(content=dealer_content, attachments=[bot_file])
             except discord.errors.NotFound:
                 print("WARNING: Dealer message not found during edit. Attempting to re-send.")
-                self.dealer_message = await interaction.channel.send(embed=dealer_embed, files=dealer_files)
+                self.dealer_message = await interaction.channel.send(content=dealer_content, files=[bot_file])
             except Exception as e:
                 print(f"WARNING: Error editing dealer message: {e}")
         else:
-            self.dealer_message = await interaction.channel.send(embed=dealer_embed, files=dealer_files)
+            self.dealer_message = await interaction.channel.send(content=dealer_content, files=[bot_file])
 
         # Update or send community cards message
         if self.community_message:
             try:
-                await self.community_message.edit(embed=community_embed, attachments=community_files)
+                if is_community_placeholder:
+                    # If it's a placeholder, ensure no attachments are sent
+                    await self.community_message.edit(content=community_content, attachments=[])
+                else:
+                    # If it's not a placeholder, send the actual community_file
+                    await self.community_message.edit(content=community_content, attachments=[community_file])
             except discord.errors.NotFound:
                 print("WARNING: Community message not found during edit. Attempting to re-send.")
-                self.community_message = await interaction.channel.send(embed=community_embed, files=community_files)
+                if is_community_placeholder:
+                    self.community_message = await interaction.channel.send(content=community_content)
+                else:
+                    self.community_message = await interaction.channel.send(content=community_content, files=[community_file])
             except Exception as e:
                 print(f"WARNING: Error editing community message: {e}")
         else:
-            self.community_message = await interaction.channel.send(embed=community_embed, files=community_files)
+            # Initial send for community cards
+            if is_community_placeholder:
+                self.community_message = await interaction.channel.send(content=community_content) # No file for initial placeholder
+            else:
+                self.community_message = await interaction.channel.send(content=community_content, files=[community_file])
 
         # Update or send player's message (this one also carries the game view)
         if self.player_message:
             try:
-                await self.player_message.edit(embed=player_embed, view=view, attachments=player_files)
+                await self.player_message.edit(content=player_content, view=view, attachments=[player_file])
             except discord.errors.NotFound:
                 print("WARNING: Player message not found during edit. Attempting to re-send.")
-                self.player_message = await interaction.channel.send(embed=player_embed, view=view, files=player_files)
+                self.player_message = await interaction.channel.send(content=player_content, view=view, files=[player_file])
             except Exception as e:
                 print(f"WARNING: Error editing player message: {e}")
         else:
-            self.player_message = await interaction.channel.send(embed=player_embed, view=view, files=player_files)
+            self.player_message = await interaction.channel.send(content=player_content, view=view, files=[player_file])
 
 
     async def start_game(self, interaction: discord.Interaction):
