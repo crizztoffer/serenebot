@@ -833,7 +833,7 @@ class TicTacToeView(discord.ui.View):
             for c in range(3):
                 mark = self.board[r][c]
                 if mark == "X":
-                    board_str += "� " # Regional indicator x
+                    board_str += "🇽 " # Regional indicator x
                 elif mark == "O":
                     board_str += "🅾️ " # Regional indicator o
                 else:
@@ -2582,15 +2582,15 @@ class TexasHoldEmGame:
             comparison = compare_scores(player_best_hand, bot_best_hand)
 
             if comparison > 0:
-                showdown_result_text = f"🏆 {player_name} wins with {player_hand_name}! 🏆"
+                showdown_result_text = f"{player_name} wins with {player_hand_name}!" # Removed emojis
                 # Award kekchipz to player
                 await update_user_kekchipz(self.player.guild.id, self.player.id, 200) # Example: 200 kekchipz for winning
             elif comparison < 0:
-                showdown_result_text = f"🤖 Serene wins with {bot_hand_name}! 🤖" # Changed Serene win text
+                showdown_result_text = f"Serene wins with {bot_hand_name}!" # Removed emojis
                 # Deduct kekchipz from player
                 await update_user_kekchipz(self.player.guild.id, self.player.id, -100) # Example: -100 kekchipz for losing
             else:
-                showdown_result_text = f"🤝 It's a tie with {player_hand_name}! 🤝"
+                showdown_result_text = f"It's a tie with {player_hand_name}!" # Removed emojis
                 # Small kekchipz for tie
                 await update_user_kekchipz(self.player.guild.id, self.player.id, 50) # Example: 50 kekchipz for a tie
 
