@@ -5,6 +5,8 @@ import json
 import asyncio
 import re # Import the re module for regular expressions
 import io # Import io for in-memory file operations
+from itertools import combinations # Import combinations for poker hand evaluation
+from collections import Counter # Import Counter for poker hand evaluation
 
 import discord
 from discord.ext import commands, tasks # Import tasks for hourly execution
@@ -935,7 +937,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
+                    content=f"🎉 **{winner_player.display_name} wins!** �",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -2121,7 +2123,138 @@ class BlackjackGame:
         active_blackjack_games[self.channel_id] = game_view # Store the view instance, not the game itself
 
 
-# --- New Texas Hold 'em Game Classes ---
+# --- Texas Hold 'em Game Classes ---
+
+# Poker Hand Evaluation Functions (from user's provided code)
+RANKS = {'2': 2, '3': 3, '4': 4, '5': 5, '6': 6,
+         '7': 7, '8': 8, '9': 9, '0': 10, 'J': 11,
+         'Q': 12, 'K': 13, 'A': 14}
+
+HAND_NAMES = {
+    1: "high card",
+    2: "one pair",
+    3: "two pair",
+    4: "three of a kind",
+    5: "straight",
+    6: "flush",
+    7: "full house",
+    8: "four of a kind",
+    9: "straight flush"
+}
+
+def get_card_value(card):
+    """Extracts the numerical value of a card from its code (e.g., 'AS' -> 14)."""
+    return RANKS[card[0]]
+
+def get_card_suit(card):
+    """Extracts the suit of a card from its code (e.g., 'AS' -> 'S')."""
+    return card[1]
+
+def hand_name(rank):
+    """Returns the descriptive name of a poker hand given its rank."""
+    return HAND_NAMES.get(rank, "unknown")
+
+def score_hand(cards):
+    """
+    Scores a 5-card poker hand.
+    Returns a list representing the hand's rank and kickers for comparison.
+    """
+    values = sorted([get_card_value(c) for c in cards])
+    suits = [get_card_suit(c) for c in cards]
+    counts = Counter(values)
+    counts_by_value = sorted(counts.items(), key=lambda x: (-x[1], -x[0]))
+    sorted_by_count = []
+    for val, count in counts_by_value:
+        sorted_by_count.extend([val] * count)
+
+    is_flush = len(set(suits)) == 1
+    unique_values = sorted(set(values))
+
+    # Check for straight
+    is_straight = False
+    high_card = None
+    if len(unique_values) >= 5: # Ensure there are enough unique cards for a straight
+        for i in range(len(unique_values) - 4):
+            window = unique_values[i:i+5]
+            if window[-1] - window[0] == 4 and len(set(window)) == 5: # Check for consecutive and unique
+                is_straight = True
+                high_card = window[-1]
+
+    # Special case: A-2-3-4-5 (Ace treated as 1)
+    # Check if the hand contains A, 2, 3, 4, 5 and is a straight
+    if set([14, 2, 3, 4, 5]).issubset(values) and len(unique_values) == 5: # Ace (14) is present, and 2,3,4,5
+        # Ensure it's not a higher straight that just happens to contain these
+        if not is_straight or high_card != 14: # If it's not already a higher straight
+            is_straight = True
+            high_card = 5 # For A-2-3-4-5, the high card for comparison is 5
+
+    # Straight flush
+    if is_straight and is_flush:
+        return [9, high_card]
+
+    # Four of a kind
+    if 4 in counts.values():
+        quad_rank = counts_by_value[0][0] # Rank of the four of a kind
+        kicker = [v for v in sorted_by_count if v != quad_rank][0] # The remaining card
+        return [8, quad_rank, kicker]
+
+    # Full house
+    if 3 in counts.values() and 2 in counts.values():
+        trip_rank = counts_by_value[0][0] # Rank of the three of a kind
+        pair_rank = counts_by_value[1][0] # Rank of the pair
+        return [7, trip_rank, pair_rank]
+
+    # Flush
+    if is_flush:
+        return [6] + sorted(values, reverse=True)[:5] # Top 5 cards for tie-breaking
+
+    # Straight
+    if is_straight:
+        return [5, high_card]
+
+    # Three of a kind
+    if 3 in counts.values():
+        trip_rank = counts_by_value[0][0]
+        kickers = [v for v in sorted_by_count if v != trip_rank][:2] # Top 2 kickers
+        return [4, trip_rank] + sorted(kickers, reverse=True)
+
+    # Two pair
+    if list(counts.values()).count(2) == 2:
+        pair1_rank = counts_by_value[0][0]
+        pair2_rank = counts_by_value[1][0]
+        kicker = [v for v in sorted_by_count if v not in [pair1_rank, pair2_rank]][0]
+        return [3, max(pair1_rank, pair2_rank), min(pair1_rank, pair2_rank), kicker]
+
+    # One pair
+    if 2 in counts.values():
+        pair_rank = counts_by_value[0][0]
+        kickers = [v for v in sorted_by_count if v != pair_rank][:3] # Top 3 kickers
+        return [2, pair_rank] + sorted(kickers, reverse=True)
+
+    # High card
+    return [1] + sorted(values, reverse=True)[:5] # Top 5 high cards
+
+def evaluate_best_hand(seven_cards):
+    """
+    Evaluates the best 5-card poker hand from a given 7 cards.
+    """
+    best = None
+    for combo in combinations(seven_cards, 5):
+        score = score_hand(combo)
+        if not best or compare_scores(score, best) > 0:
+            best = score
+    return best
+
+def compare_scores(score1, score2):
+    """
+    Compares two poker hand scores.
+    Returns 1 if score1 is better, -1 if score2 is better, 0 if tie.
+    """
+    for a, b in zip(score1, score2):
+        if a > b: return 1
+        if a < b: return -1
+    return 0
+
 
 class TexasHoldEmGameView(discord.ui.View):
     """
@@ -2427,6 +2560,37 @@ class TexasHoldEmGame:
         community_text = "Community Cards" if community_card_codes else "Community Cards: (None yet)"
         player_text = f"{player_name}'s Hand"
         kekchipz_text = f"Kekchipz: ${player_kekchipz}"
+        
+        # Determine showdown result if applicable
+        showdown_result_text = ""
+        if reveal_opponent and self.game_phase == "showdown":
+            player_all_cards = self.player_hole_cards + self.community_cards
+            bot_all_cards = self.bot_hole_cards + self.community_cards
+
+            player_best_hand = evaluate_best_hand([c['code'] for c in player_all_cards])
+            bot_best_hand = evaluate_best_hand([c['code'] for c in bot_all_cards])
+
+            player_hand_name = hand_name(player_best_hand[0])
+            bot_hand_name = hand_name(bot_best_hand[0])
+
+            comparison = compare_scores(player_best_hand, bot_best_hand)
+
+            if comparison > 0:
+                showdown_result_text = f"🏆 {player_name} wins with {player_hand_name}! 🏆"
+                # Award kekchipz to player
+                await update_user_kekchipz(self.player.guild.id, self.player.id, 200) # Example: 200 kekchipz for winning
+            elif comparison < 0:
+                showdown_result_text = f"🤖 {bot_name} wins with {bot_hand_name}! 🤖"
+                # Deduct kekchipz from player
+                await update_user_kekchipz(self.player.guild.id, self.player.id, -100) # Example: -100 kekchipz for losing
+            else:
+                showdown_result_text = f"🤝 It's a tie with {player_hand_name}! 🤝"
+                # Small kekchipz for tie
+                await update_user_kekchipz(self.player.guild.id, self.player.id, 50) # Example: 50 kekchipz for a tie
+
+        showdown_text_height = 0
+        if showdown_result_text:
+            showdown_text_height = dummy_draw.textbbox((0,0), showdown_result_text, font=font_large)[3] - dummy_draw.textbbox((0,0), showdown_result_text, font=font_large)[1]
 
         dealer_text_height = dummy_draw.textbbox((0,0), dealer_text, font=font_medium)[3] - dummy_draw.textbbox((0,0), dealer_text, font=font_medium)[1]
         community_text_height = dummy_draw.textbbox((0,0), community_text, font=font_medium)[3] - dummy_draw.textbbox((0,0), community_text, font=font_medium)[1]
@@ -2435,6 +2599,7 @@ class TexasHoldEmGame:
 
         # Calculate total height
         total_height = (
+            showdown_text_height + vertical_padding + # Added showdown text height
             dealer_text_height + bot_hand_img.height + vertical_padding +
             community_text_height + community_img.height + vertical_padding +
             player_text_height + player_hand_img.height + vertical_padding +
@@ -2447,6 +2612,14 @@ class TexasHoldEmGame:
         draw = ImageDraw.Draw(combined_image)
 
         current_y_offset = vertical_padding # Start with some top padding
+
+        # Draw Showdown Result if applicable
+        if showdown_result_text:
+            showdown_text_width = dummy_draw.textbbox((0,0), showdown_result_text, font=font_large)[2] - dummy_draw.textbbox((0,0), showdown_result_text, font=font_large)[0]
+            showdown_x_offset = text_padding_x + (max_content_width - showdown_text_width) // 2
+            draw.text((showdown_x_offset, current_y_offset), showdown_result_text, font=font_large, fill=(255, 255, 0)) # Yellow for result
+            current_y_offset += showdown_text_height + vertical_padding
+
 
         # Draw Dealer's Hand
         # Calculate x_offset to center dealer's hand relative to max_content_width
