@@ -935,7 +935,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
+                    content=f"🎉 **{winner_player.display_name} wins!** �",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -2380,7 +2380,7 @@ class TexasHoldEmGame:
         bot_image_pil.save(bot_image_bytes, format='PNG')
         bot_image_bytes.seek(0)
         bot_file = discord.File(bot_image_bytes, filename="bot_hole_cards.png")
-        dealer_content = f"**Serene's Hand**\nBot's hole cards\nGame Phase: {self.game_phase.replace('_', ' ').title()}"
+        dealer_content = f"**Serene's Hand**"
         dealer_payload = (dealer_content, bot_file, False)
 
         # --- 2. Community Cards ---
@@ -2395,9 +2395,9 @@ class TexasHoldEmGame:
             community_image_pil.save(community_image_bytes, format='PNG')
             community_image_bytes.seek(0)
             community_file = discord.File(community_image_bytes, filename="community_cards.png")
-            community_content = "**Community Cards**\nThe board"
+            community_content = "**Community Cards**"
         else:
-            community_content = "**Community Cards**\nCommunity Cards will appear here (waiting for flop...)"
+            community_content = "Waiting for players..."
             is_community_placeholder = True # No file will be generated for the placeholder
         community_payload = (community_content, community_file, is_community_placeholder)
 
@@ -2408,7 +2408,7 @@ class TexasHoldEmGame:
         player_image_pil.save(player_image_bytes, format='PNG')
         player_image_bytes.seek(0)
         player_file = discord.File(player_image_bytes, filename="player_hole_cards.png")
-        player_content = f"**{self.player.display_name}'s Hand**\nYour hole cards\nCurrent Turn: {self.player.display_name}"
+        player_content = f"**Your Hand**"
         player_payload = (player_content, player_file, False)
 
         return dealer_payload, community_payload, player_payload
@@ -2460,17 +2460,14 @@ class TexasHoldEmGame:
         # Update or send player's message (this one also carries the game view)
         if self.player_message:
             try:
-                # When editing, we don't change ephemeral status, but it will retain it if initially sent as such
                 await self.player_message.edit(content=player_content, view=view, attachments=[player_file])
             except discord.errors.NotFound:
-                print("WARNING: Player message not found during edit. Attempting to re-send as ephemeral.")
-                # If the message was deleted or lost, re-send it as ephemeral
-                self.player_message = await interaction.channel.send(content=player_content, view=view, files=[player_file], ephemeral=True)
+                print("WARNING: Player message not found during edit. Attempting to re-send.")
+                self.player_message = await interaction.channel.send(content=player_content, view=view, files=[player_file])
             except Exception as e:
                 print(f"WARNING: Error editing player message: {e}")
         else:
-            # Initial send of player's message - make it ephemeral
-            self.player_message = await interaction.channel.send(content=player_content, view=view, files=[player_file], ephemeral=True)
+            self.player_message = await interaction.channel.send(content=player_content, view=view, files=[player_file])
 
 
     async def start_game(self, interaction: discord.Interaction):
