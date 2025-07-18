@@ -2275,6 +2275,7 @@ class TexasHoldEmGameView(discord.ui.View):
         Buttons that should not be seen are not added.
         """
         self.clear_items() # Crucial: Clear all existing buttons
+        print(f"DEBUG: _set_button_states called. Phase: {phase}, Betting Visible: {betting_buttons_visible}, Call After Raise: {call_after_raise_enabled}")
 
         # Always add Fold and Play Again
         self.add_item(discord.ui.Button(label="Fold", style=discord.ButtonStyle.red, custom_id="holdem_fold_main", row=0))
@@ -2303,16 +2304,16 @@ class TexasHoldEmGameView(discord.ui.View):
             # Adjust disabled states based on sub-phase (betting_buttons_visible, call_after_raise_enabled)
             if betting_buttons_visible:
                 for item in self.children:
-                    if item.custom_id in ["holdem_raise_main", "holdem_call_main", "holdem_check_main"]:
+                    if item.custom_id in ["holdem_raise_main", "holdem_call_main", "holdem_check_main", "holdem_fold_main"]:
                         item.disabled = True # Disable main actions if bet buttons are active
                     elif item.custom_id.startswith("holdem_bet_"):
                         item.disabled = False # Enable bet buttons
             elif call_after_raise_enabled:
                 for item in self.children:
-                    if item.custom_id == "holdem_call_main":
+                    if item.custom_id == "holdem_call_main" or item.custom_id == "holdem_fold_main": # Player must call or fold
                         item.disabled = False
-                    elif item.custom_id in ["holdem_raise_main", "holdem_check_main"]:
-                        item.disabled = True # Disable raise/check if player must call
+                    elif item.custom_id in ["holdem_raise_main", "holdem_check_main"] or item.custom_id.startswith("holdem_bet_"):
+                        item.disabled = True # Disable raise/check/bet if player must call
             else: # Normal state for flop/turn/river if no raise is pending
                 for item in self.children:
                     if item.custom_id in ["holdem_raise_main", "holdem_check_main", "holdem_fold_main"]:
@@ -2333,6 +2334,10 @@ class TexasHoldEmGameView(discord.ui.View):
         for item in self.children:
             if item.custom_id == "holdem_play_again" and phase not in ["showdown", "folded"]:
                 item.disabled = True
+        
+        print(f"DEBUG: Buttons after _set_button_states:")
+        for item in self.children:
+            print(f"  Button: {item.custom_id}, Label: {item.label}, Disabled: {item.disabled}, Row: {item.row}")
 
 
     def _end_game_buttons(self):
@@ -2343,6 +2348,7 @@ class TexasHoldEmGameView(discord.ui.View):
 
     async def on_timeout(self):
         """Called when the view times out due to inactivity."""
+        print(f"DEBUG: on_timeout called for channel {self.game.channel_id}")
         if self.game.game_message:
             try:
                 self._end_game_buttons() # Enable Play Again, disable others
@@ -2358,41 +2364,52 @@ class TexasHoldEmGameView(discord.ui.View):
 
     @discord.ui.button(label="Raise", style=discord.ButtonStyle.green, custom_id="holdem_raise_main", row=0)
     async def raise_main_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        print(f"DEBUG: raise_main_callback called by {interaction.user.display_name}")
         try: # Added try block
             if interaction.user.id != self.game.player.id:
                 await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
+                print(f"DEBUG: Not player's turn for raise_main_callback. User: {interaction.user.id}, Player: {self.game.player.id}")
                 return
             
             self.game.current_bet_buttons_visible = True
             self._set_button_states(self.game.game_phase, betting_buttons_visible=True)
+            print(f"DEBUG: After _set_button_states in raise_main_callback. g_total: {self.game.g_total}")
             # Use edit_original_response as interaction was deferred in game_command
             await interaction.response.edit_message(view=self) 
             await self.game._update_display_message(interaction, self)
+            print(f"DEBUG: End of raise_main_callback.")
         except Exception as e: # Catch any exception
-            print(f"Error in raise_main_callback: {e}")
+            print(f"ERROR in raise_main_callback: {e}")
             if not interaction.response.is_done(): # Check if response is already sent
                 await interaction.followup.send("An error occurred during your Raise action. Please try again or contact support.", ephemeral=True)
 
 
     @discord.ui.button(label="Call", style=discord.ButtonStyle.blurple, custom_id="holdem_call_main", row=0)
     async def call_main_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        print(f"DEBUG: call_main_callback called by {interaction.user.display_name}")
         try: # Added try block
             if interaction.user.id != self.game.player.id:
                 await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
+                print(f"DEBUG: Not player's turn for call_main_callback. User: {interaction.user.id}, Player: {self.game.player.id}")
                 return
             
             await interaction.response.defer() # Defer to allow time for updates
+            print(f"DEBUG: Interaction deferred in call_main_callback.")
 
             if self.game.game_phase == "pre_flop":
-                # Pre-flop call: Gtotal = minimum_bet * 2
-                self.game.g_total = self.game.minimum_bet * 2
+                # Pre-flop call: Player matches big blind. Initial pot was minimum_bet (bot's blind).
+                # Player adds minimum_bet. So g_total becomes minimum_bet * 2.
+                self.game.g_total += self.game.minimum_bet # Add player's call amount
+                print(f"DEBUG: Pre-flop Call. g_total updated to: {self.game.g_total}")
                 self.game.deal_flop()
                 self._set_button_states("flop")
+                print(f"DEBUG: After deal_flop and _set_button_states in call_main_callback (pre-flop).")
             elif self.game.player_action_pending and self.game.dealer_raise_amount > 0:
                 # Player calls after dealer's raise
-                self.game.g_total += self.game.dealer_raise_amount * 2
+                self.game.g_total += self.game.dealer_raise_amount * 2 # Player matches dealer's raise, dealer matches player's call
                 self.game.dealer_raise_amount = 0 # Reset dealer's raise
                 self.game.player_action_pending = False
+                print(f"DEBUG: Call after dealer raise. g_total updated to: {self.game.g_total}")
                 
                 if self.game.game_phase == "flop":
                     self.game.deal_turn()
@@ -2402,10 +2419,12 @@ class TexasHoldEmGameView(discord.ui.View):
                     self._set_button_states("river")
                 else: # Should not happen if logic is correct, but for safety
                     self._set_button_states(self.game.game_phase)
+                print(f"DEBUG: After phase advance and _set_button_states in call_main_callback (post-flop).")
             else:
                 await interaction.followup.send("Invalid call action.", ephemeral=True)
                 self._set_button_states(self.game.game_phase) # Reset buttons
                 await self.game._update_display_message(interaction, self)
+                print(f"DEBUG: Invalid call action detected.")
                 return
 
             # Check if it's the river and player calls, then proceed to showdown
@@ -2415,26 +2434,32 @@ class TexasHoldEmGameView(discord.ui.View):
                 await self.game._update_display_message(interaction, self, reveal_opponent=True)
                 del active_texasholdem_games[self.game.channel_id]
                 self.stop()
+                print(f"DEBUG: Game ended via Showdown after Call on River.")
             else:
                 await self.game._update_display_message(interaction, self)
+                print(f"DEBUG: End of call_main_callback, display updated.")
         except Exception as e: # Catch any exception
-            print(f"Error in call_main_callback: {e}")
+            print(f"ERROR in call_main_callback: {e}")
             if not interaction.response.is_done():
                 await interaction.followup.send("An error occurred during your Call action. Please try again or contact support.", ephemeral=True)
 
 
     @discord.ui.button(label="Fold", style=discord.ButtonStyle.red, custom_id="holdem_fold_main", row=0)
     async def fold_main_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        print(f"DEBUG: fold_main_callback called by {interaction.user.display_name}")
         try: # Added try block
             if interaction.user.id != self.game.player.id:
                 await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
+                print(f"DEBUG: Not player's turn for fold_main_callback. User: {interaction.user.id}, Player: {self.game.player.id}")
                 return
             
             await interaction.response.defer() # Defer to allow time for updates
+            print(f"DEBUG: Interaction deferred in fold_main_callback.")
 
             # Player folds, loses minimum bet (pre-flop) or current Gtotal contribution
             kekchipz_lost = self.game.minimum_bet if self.game.game_phase == "pre_flop" else self.game.g_total / 2 # Assuming half of Gtotal is player's contribution
             await update_user_kekchipz(interaction.guild.id, interaction.user.id, -int(kekchipz_lost))
+            print(f"DEBUG: Kekchipz lost for fold: {int(kekchipz_lost)}. New kekchipz: {await get_user_kekchipz(interaction.guild.id, interaction.user.id)}")
             
             self._end_game_buttons()
             self.game.game_phase = "folded" # Indicate game ended by fold
@@ -2442,23 +2467,28 @@ class TexasHoldEmGameView(discord.ui.View):
             await interaction.followup.send(f"{self.game.player.display_name} folded. You lost ${int(kekchipz_lost)} kekchipz. Game over.")
             del active_texasholdem_games[self.game.channel_id]
             self.stop()
+            print(f"DEBUG: Game ended via Fold.")
         except Exception as e: # Catch any exception
-            print(f"Error in fold_main_callback: {e}")
+            print(f"ERROR in fold_main_callback: {e}")
             if not interaction.response.is_done():
                 await interaction.followup.send("An error occurred during your Fold action. Please try again or contact support.", ephemeral=True)
 
 
-    @discord.ui.button(label="Check", style=discord.ButtonStyle.gray, custom_id="holdem_check_main", row=0) # Removed disabled=True from here as it's handled by _set_button_states
+    @discord.ui.button(label="Check", style=discord.ButtonStyle.gray, custom_id="holdem_check_main", row=0)
     async def check_main_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        print(f"DEBUG: check_main_callback called by {interaction.user.display_name}")
         try: # Added try block
             if interaction.user.id != self.game.player.id:
                 await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
+                print(f"DEBUG: Not player's turn for check_main_callback. User: {interaction.user.id}, Player: {self.game.player.id}")
                 return
             
             await interaction.response.defer() # Defer to allow time for updates
+            print(f"DEBUG: Interaction deferred in check_main_callback.")
 
             # Dealer's turn to check or raise
             dealer_action = random.choice([1, 2]) # 1 for check, 2 for raise
+            print(f"DEBUG: Dealer action: {dealer_action}")
 
             if dealer_action == 1: # Dealer checks
                 if self.game.game_phase == "flop":
@@ -2473,60 +2503,74 @@ class TexasHoldEmGameView(discord.ui.View):
                     await self.game._update_display_message(interaction, self, reveal_opponent=True)
                     del active_texasholdem_games[self.game.channel_id]
                     self.stop()
+                    print(f"DEBUG: Game ended via Showdown after Dealer Check on River.")
                     return # Exit early after showdown
                 
                 await self.game._update_display_message(interaction, self)
                 await interaction.followup.send("Serene checks.")
+                print(f"DEBUG: Serene checked. g_total: {self.game.g_total}")
             else: # Dealer raises
                 raise_amount = random.choice([5, 10, 25])
                 self.game.dealer_raise_amount = raise_amount
                 self.game.player_action_pending = True # Player must now call or fold
+                print(f"DEBUG: Serene raises by {raise_amount}. g_total: {self.game.g_total}")
 
                 self._set_button_states(self.game.game_phase, call_after_raise_enabled=True) # Enable Call, disable Check/Raise
                 await self.game._update_display_message(interaction, self)
                 await interaction.followup.send(f"Serene raises by ${raise_amount}! You must Call or Fold.")
+            print(f"DEBUG: End of check_main_callback.")
         except Exception as e: # Catch any exception
-            print(f"Error in check_main_callback: {e}")
+            print(f"ERROR in check_main_callback: {e}")
             if not interaction.response.is_done():
                 await interaction.followup.send("An error occurred during your Check action. Please try again or contact support.", ephemeral=True)
 
 
-    @discord.ui.button(label="$5", style=discord.ButtonStyle.secondary, custom_id="holdem_bet_5", row=1) # Removed disabled=True
-    @discord.ui.button(label="$10", style=discord.ButtonStyle.secondary, custom_id="holdem_bet_10", row=1) # Removed disabled=True
-    @discord.ui.button(label="$25", style=discord.ButtonStyle.secondary, custom_id="holdem_bet_25", row=1) # Removed disabled=True
+    @discord.ui.button(label="$5", style=discord.ButtonStyle.secondary, custom_id="holdem_bet_5", row=1)
+    @discord.ui.button(label="$10", style=discord.ButtonStyle.secondary, custom_id="holdem_bet_10", row=1)
+    @discord.ui.button(label="$25", style=discord.ButtonStyle.secondary, custom_id="holdem_bet_25", row=1)
     async def bet_amount_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        print(f"DEBUG: bet_amount_callback called by {interaction.user.display_name}. Button: {button.label}")
         try: # Added try block
             if interaction.user.id != self.game.player.id:
                 await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
+                print(f"DEBUG: Not player's turn for bet_amount_callback. User: {interaction.user.id}, Player: {self.game.player.id}")
                 return
             
             await interaction.response.defer() # Defer to allow time for updates
+            print(f"DEBUG: Interaction deferred in bet_amount_callback.")
 
             bet_amount = int(button.label.replace('$', ''))
+            print(f"DEBUG: Bet amount selected: {bet_amount}")
             
             self.game.handle_player_raise(bet_amount) # This updates g_total and sets betting_buttons_visible to False
+            print(f"DEBUG: After handle_player_raise. g_total: {self.game.g_total}")
 
             # Advance game phase based on current phase
             if self.game.game_phase == "pre_flop":
                 self.game.deal_flop()
                 self._set_button_states("flop")
+                print(f"DEBUG: Advanced to Flop phase.")
             elif self.game.game_phase == "flop":
                 self.game.deal_turn()
                 self._set_button_states("turn")
+                print(f"DEBUG: Advanced to Turn phase.")
             elif self.game.game_phase == "turn":
                 self.game.deal_river()
                 self._set_button_states("river")
+                print(f"DEBUG: Advanced to River phase.")
             elif self.game.game_phase == "river": # After river, next is showdown
                 self.game.game_phase = "showdown" # Set game phase to showdown
                 self._end_game_buttons() # Disable all game buttons, enable Play Again
                 await self.game._update_display_message(interaction, self, reveal_opponent=True)
                 del active_texasholdem_games[self.game.channel_id]
                 self.stop()
+                print(f"DEBUG: Game ended via Showdown after Bet on River.")
                 return # Exit early after showdown
             
             await self.game._update_display_message(interaction, self)
+            print(f"DEBUG: End of bet_amount_callback, display updated.")
         except Exception as e: # Catch any exception
-            print(f"Error in bet_amount_callback: {e}")
+            print(f"ERROR in bet_amount_callback: {e}")
             if not interaction.response.is_done():
                 await interaction.followup.send("An error occurred during your Bet action. Please try again or contact support.", ephemeral=True)
 
@@ -2536,21 +2580,26 @@ class TexasHoldEmGameView(discord.ui.View):
 
     @discord.ui.button(label="Play Again", style=discord.ButtonStyle.blurple, custom_id="holdem_play_again", row=2, disabled=True)
     async def play_again_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        print(f"DEBUG: play_again_callback called by {interaction.user.display_name}")
         if interaction.user.id != self.game.player.id:
             await interaction.response.send_message("This is not your Texas Hold 'em game!", ephemeral=True)
+            print(f"DEBUG: Not player's turn for play_again_callback. User: {interaction.user.id}, Player: {self.game.player.id}")
             return
         
         await interaction.response.defer() # Defer to allow time for updates
+        print(f"DEBUG: Interaction deferred in play_again_callback.")
 
         self.game.reset_game()
         self.game.deal_hole_cards()
 
         # Reset button states for a new game
         self._set_button_states("pre_flop")
+        print(f"DEBUG: Game reset. New g_total: {self.game.g_total}")
         
         try:
             await self.game._update_display_message(interaction, self)
             active_texasholdem_games[self.game.channel_id] = self
+            print(f"DEBUG: Game restarted successfully.")
         except discord.errors.NotFound:
             print("WARNING: Original game messages not found during 'Play Again' edit for Hold 'em.")
             await interaction.followup.send("Could not restart game. Please try `/serene game texas_hold_em` again.", ephemeral=True)
@@ -2569,6 +2618,7 @@ class TexasHoldEmGame:
     Manages game state, player hands, and community cards.
     """
     def __init__(self, channel_id: int, player: discord.User):
+        print(f"DEBUG: Initializing TexasHoldEmGame for channel {channel_id}, player {player.display_name}")
         self.channel_id = channel_id
         self.player = player # Human player
         self.bot_player = bot.user # Serene bot as opponent
@@ -2578,8 +2628,8 @@ class TexasHoldEmGame:
         self.community_cards = []
         
         # Game state for betting
-        self.minimum_bet = 10
-        self.g_total = 0
+        self.minimum_bet = 10 # Represents the big blind
+        self.g_total = 0 # Represents the total pot
         self.current_bet_buttons_visible = False # Flag to control visibility of $5, $10, $25 buttons
         self.dealer_raise_amount = 0 # Stores the amount dealer raised
         self.player_action_pending = False # True if player needs to respond to dealer's raise
@@ -2588,6 +2638,8 @@ class TexasHoldEmGame:
         self.game_message = None
         
         self.game_phase = "pre_flop" # pre_flop, flop, turn, river, showdown, folded
+        print(f"DEBUG: TexasHoldEmGame initialized. minimum_bet: {self.minimum_bet}, g_total: {self.g_total}")
+
 
     def _create_standard_deck(self) -> list[dict]:
         """
@@ -2637,28 +2689,41 @@ class TexasHoldEmGame:
         self.player_hole_cards = [self.deal_card(), self.deal_card()]
         self.bot_hole_cards = [self.deal_card(), self.deal_card()]
         self.game_phase = "pre_flop"
+        print(f"DEBUG: Hole cards dealt. Player: {[c['code'] for c in self.player_hole_cards]}, Bot: {[c['code'] for c in self.bot_hole_cards]}")
+
 
     def deal_flop(self):
         """Deals 3 community cards (the flop)."""
         self.community_cards.extend([self.deal_card(), self.deal_card(), self.deal_card()])
         self.game_phase = "flop"
+        print(f"DEBUG: Flop dealt. Community cards: {[c['code'] for c in self.community_cards]}")
 
     def deal_turn(self):
         """Deals 1 community card (the turn)."""
         self.community_cards.append(self.deal_card())
         self.game_phase = "turn"
+        print(f"DEBUG: Turn dealt. Community cards: {[c['code'] for c in self.community_cards]}")
 
     def deal_river(self):
         """Deals 1 community card (the river)."""
         self.community_cards.append(self.deal_card())
         self.game_phase = "river"
+        print(f"DEBUG: River dealt. Community cards: {[c['code'] for c in self.community_cards]}")
 
     def handle_player_raise(self, bet_amount: int):
         """Handles player's raise action."""
+        print(f"DEBUG: handle_player_raise called. Current g_total: {self.g_total}, Bet amount: {bet_amount}")
         if self.game_phase == "pre_flop":
-            self.g_total = (bet_amount * 2) + self.minimum_bet # Raise amount * 2 + minimum
+            # User wants: "value clicked should be doubled and added to 20"
+            # This implies initial pot is 20 (from blinds), and raise adds 2 * bet_amount
+            # So, if minimum_bet is 10, then 2 * minimum_bet = 20.
+            self.g_total = (self.minimum_bet * 2) + (bet_amount * 2)
+            print(f"DEBUG: Pre-flop raise. New g_total: {self.g_total}")
         else:
-            self.g_total += (bet_amount * 2) # Add raise amount * 2 to existing Gtotal
+            # For post-flop raises, it's simpler: player raises by X, opponent matches X.
+            self.g_total += (bet_amount * 2)
+            print(f"DEBUG: Post-flop raise. New g_total: {self.g_total}")
+
         self.current_bet_buttons_visible = False # Hide betting buttons after selection
         self.dealer_raise_amount = 0 # Reset dealer raise if player initiated raise
         self.player_action_pending = False # Reset pending action
@@ -2670,6 +2735,7 @@ class TexasHoldEmGame:
 
     def reset_game(self):
         """Resets the game state for a new round."""
+        print("DEBUG: Resetting game state.")
         self.deck = self._create_standard_deck()
         random.shuffle(self.deck)
         self.player_hole_cards = []
@@ -2680,6 +2746,7 @@ class TexasHoldEmGame:
         self.current_bet_buttons_visible = False
         self.dealer_raise_amount = 0
         self.player_action_pending = False
+        print(f"DEBUG: Game state reset. g_total: {self.g_total}")
 
 
     async def _create_combined_holdem_image(self, player_name: str, bot_name: str, reveal_opponent: bool = False) -> Image.Image:
@@ -2695,6 +2762,7 @@ class TexasHoldEmGame:
         Returns:
             PIL.Image.Image: A Pillow Image object containing the combined game state.
         """
+        print(f"DEBUG: _create_combined_holdem_image called. Reveal opponent: {reveal_opponent}, Game phase: {self.game_phase}")
         # Define image scaling and padding
         card_scale_factor = 1.0 # Changed to 1.0
         card_overlap_percent = 0.33
@@ -2706,14 +2774,17 @@ class TexasHoldEmGame:
         # Bot's hand
         bot_display_card_codes = [card['code'] for card in self.bot_hole_cards if 'code' in card] if reveal_opponent else ["XX", "XX"]
         bot_hand_img = await create_card_combo_image(','.join(bot_display_card_codes), scale_factor=card_scale_factor, overlap_percent=card_overlap_percent)
+        print(f"DEBUG: Bot hand image created. Codes: {bot_display_card_codes}")
 
         # Community cards
         community_card_codes = [card['code'] for card in self.community_cards if 'code' in card]
         community_img = await create_card_combo_image(','.join(community_card_codes), scale_factor=card_scale_factor, overlap_percent=card_overlap_percent)
+        print(f"DEBUG: Community cards image created. Codes: {community_card_codes}")
         
         # Player's hand
         player_card_codes = [card['code'] for card in self.player_hole_cards if 'code' in card]
         player_hand_img = await create_card_combo_image(','.join(player_card_codes), scale_factor=card_scale_factor, overlap_percent=card_overlap_percent)
+        print(f"DEBUG: Player hand image created. Codes: {player_card_codes}")
 
         # --- Font Loading ---
         font_url = "http://serenekeks.com/OpenSans-CondBold.ttf" # Changed font URL
@@ -2775,6 +2846,7 @@ class TexasHoldEmGame:
                 showdown_result_text = f"It's a tie with {player_hand_name}!" # Removed emojis
                 # Small kekchipz for tie
                 await update_user_kekchipz(self.player.guild.id, self.player.id, 50) # Example: 50 kekchipz for a tie
+        print(f"DEBUG: Showdown result text: '{showdown_result_text}'")
 
         # Calculate text dimensions
         showdown_text_width = 0
@@ -2815,6 +2887,7 @@ class TexasHoldEmGame:
             player_text_height + text_padding_y + # Player text and its padding
             player_hand_img.height + vertical_padding # Player cards and bottom padding
         )
+        print(f"DEBUG: Combined image dimensions: {combined_image_width}x{total_height}")
 
         # Create the final combined image with a transparent background
         combined_image = Image.new('RGBA', (combined_image_width, total_height), (0, 0, 0, 0)) # Transparent background
@@ -2889,7 +2962,7 @@ class TexasHoldEmGame:
         # Paste Player's Hand image
         combined_image.paste(player_hand_img, (player_img_x_offset, current_y_offset), player_hand_img)
         current_y_offset += player_hand_img.height + vertical_padding
-
+        print(f"DEBUG: Image creation complete.")
         return combined_image
 
     async def _update_display_message(self, interaction: discord.Interaction, view: TexasHoldEmGameView, reveal_opponent: bool = False):
@@ -2897,37 +2970,48 @@ class TexasHoldEmGame:
         Updates the single game message for Texas Hold 'em with the combined image.
         Deletes old messages if they exist.
         """
+        print(f"DEBUG: _update_display_message called. Current g_total: {self.g_total}")
         try: # Added try block for the entire method
             player_kekchipz = await get_user_kekchipz(self.player.guild.id, self.player.id)
+            print(f"DEBUG: Player kekchipz: {player_kekchipz}")
             combined_image_pil = await self._create_combined_holdem_image(
                 self.player.display_name,
                 self.bot_player.display_name,
                 reveal_opponent=reveal_opponent
             )
+            print("DEBUG: Combined image PIL created.")
 
             combined_image_bytes = io.BytesIO()
             combined_image_pil.save(combined_image_bytes, format='PNG')
             combined_image_bytes.seek(0)
             combined_file = discord.File(combined_image_bytes, filename="texas_holdem_game.png")
+            print("DEBUG: Combined image file created.")
 
             # Message content now includes Kekchipz balance
             message_content = f"**{self.player.display_name}'s Kekchipz:** ${player_kekchipz}"
+            print(f"DEBUG: Message content: {message_content}")
 
             # Send or edit the single game message
             if self.game_message:
+                print(f"DEBUG: Editing existing game message {self.game_message.id}.")
                 try:
                     # Use 'attachments' keyword argument instead of 'files'
                     await self.game_message.edit(content=message_content, view=view, attachments=[combined_file])
+                    print("DEBUG: Message edited successfully.")
                 except discord.errors.NotFound:
                     print("WARNING: Game message not found during edit. Attempting to re-send.")
                     self.game_message = await interaction.channel.send(content=message_content, view=view, files=[combined_file])
+                    print(f"DEBUG: Message re-sent. New message ID: {self.game_message.id}")
                 except Exception as e:
                     print(f"WARNING: Error editing game message: {e}")
                     self.game_message = await interaction.channel.send(content="An error occurred updating the game display.", view=view, files=[combined_file])
+                    print(f"DEBUG: Error fallback: message re-sent. New message ID: {self.game_message.id}")
             else:
+                print("DEBUG: Sending new game message.")
                 self.game_message = await interaction.channel.send(content=message_content, view=view, files=[combined_file])
+                print(f"DEBUG: New game message sent. ID: {self.game_message.id}")
         except Exception as e: # Catch any exception in _update_display_message
-            print(f"Error in _update_display_message: {e}")
+            print(f"ERROR in _update_display_message: {e}")
             # If interaction is not done, send a followup message to the user
             if not interaction.response.is_done():
                 await interaction.followup.send("An internal error occurred while updating the game display. Please try again.", ephemeral=True)
@@ -2938,14 +3022,19 @@ class TexasHoldEmGame:
         Starts the Texas Hold 'em game: shuffles, deals initial hands,
         and displays the initial state in a single message with a combined image.
         """
+        print(f"DEBUG: start_game called for channel {self.channel_id}")
         random.shuffle(self.deck)
         self.deal_hole_cards() # Deal initial 2 cards to player and bot
-        self.g_total = self.minimum_bet # Initial ante for Gtotal
+        
+        # Initial pot (blinds) setup: Bot puts in big blind
+        self.g_total = self.minimum_bet # Pot starts at 10 (big blind from bot)
+        print(f"DEBUG: Initial g_total after bot's blind: {self.g_total}")
 
         game_view = TexasHoldEmGameView(game=self)
         
         # Initialize button states before sending the message
         game_view._set_button_states("pre_flop") # This will now add only relevant buttons for pre_flop
+        print("DEBUG: Initial button states set for pre_flop.")
 
         # Generate initial image
         combined_image_pil = await self._create_combined_holdem_image(self.player.display_name, self.bot_player.display_name)
@@ -2953,6 +3042,7 @@ class TexasHoldEmGame:
         combined_image_pil.save(combined_image_bytes, format='PNG')
         combined_image_bytes.seek(0)
         combined_file = discord.File(combined_image_bytes, filename="texas_holdem_game.png")
+        print("DEBUG: Initial combined image file prepared.")
 
         # Send initial message and store its reference
         self.game_message = await interaction.followup.send(
@@ -2961,8 +3051,10 @@ class TexasHoldEmGame:
             files=[combined_file]
         )
         game_view.message = self.game_message # Store message in the view for updates
+        print(f"DEBUG: Initial game message sent. Message ID: {self.game_message.id}")
 
         active_texasholdem_games[self.channel_id] = game_view
+        print(f"DEBUG: Game started successfully for channel {self.channel_id}.")
 
 
 @serene_group.command(name="game", description="Start a fun game with Serene!")
@@ -2978,7 +3070,9 @@ async def game_command(interaction: discord.Interaction, game_type: str):
     Handles the /serene game slash command.
     Starts the selected game directly.
     """
+    print(f"DEBUG: game_command called for game_type: {game_type}")
     await interaction.response.defer(ephemeral=True)
+    print("DEBUG: Interaction deferred (ephemeral).")
 
     if game_type == "tic_tac_toe":
         if interaction.channel.id in active_tictactoe_games:
@@ -2986,6 +3080,7 @@ async def game_command(interaction: discord.Interaction, game_type: str):
                 "A Tic-Tac-Toe game is already active in this channel! Please finish it or wait.",
                 ephemeral=True
             )
+            print("DEBUG: Tic-Tac-Toe game already active.")
             return
 
         player1 = interaction.user
@@ -2995,6 +3090,7 @@ async def game_command(interaction: discord.Interaction, game_type: str):
             f"Starting Tic-Tac-Toe for {player1.display_name} vs. {player2.display_name}...",
             ephemeral=True
         )
+        print("DEBUG: Starting Tic-Tac-Toe.")
 
         game_view = TicTacToeView(player_x=player1, player_o=player2)
         
@@ -3005,6 +3101,7 @@ async def game_command(interaction: discord.Interaction, game_type: str):
         )
         game_view.message = game_message
         active_tictactoe_games[interaction.channel.id] = game_view
+        print(f"DEBUG: Tic-Tac-Toe game started in channel {interaction.channel.id}.")
 
     elif game_type == "jeopardy":
         if interaction.channel.id in active_jeopardy_games:
@@ -3012,9 +3109,11 @@ async def game_command(interaction: discord.Interaction, game_type: str):
                 "A Jeopardy game is already active in this channel! Please finish it or wait.",
                 ephemeral=True
             )
+            print("DEBUG: Jeopardy game already active.")
             return
         
         await interaction.followup.send("Setting up Jeopardy game...", ephemeral=True)
+        print("DEBUG: Setting up Jeopardy game.")
         
         jeopardy_game = NewJeopardyGame(interaction.channel.id, interaction.user)
         
@@ -3034,12 +3133,14 @@ async def game_command(interaction: discord.Interaction, game_type: str):
                 view=jeopardy_view
             )
             jeopardy_game.board_message = game_message
+            print(f"DEBUG: Jeopardy game started in channel {interaction.channel.id}.")
 
         else:
             await interaction.followup.send(
                 "Failed to load Jeopardy game data. Please try again later.",
                 ephemeral=True
             )
+            print("DEBUG: Failed to load Jeopardy game data.")
             return
     elif game_type == "blackjack": # Placeholder for Blackjack
         if interaction.channel.id in active_blackjack_games:
@@ -3047,16 +3148,19 @@ async def game_command(interaction: discord.Interaction, game_type: str):
                 "A Blackjack game is already active in this channel! Please finish it or wait.",
                 ephemeral=True
             )
+            print("DEBUG: Blackjack game already active.")
             return
         
         # This initial defer is for the "Setting up Blackjack game..." message.
         # The actual game message will be sent by start_game using interaction.followup.send()
         await interaction.followup.send("Setting up Blackjack game...", ephemeral=True)
+        print("DEBUG: Setting up Blackjack game.")
         
         blackjack_game = BlackjackGame(interaction.channel.id, interaction.user)
         
         # Call the new start_game method for Blackjack, passing the interaction
         await blackjack_game.start_game(interaction)
+        print(f"DEBUG: Blackjack game started in channel {interaction.channel.id}.")
 
     elif game_type == "texas_hold_em": # Added Texas Hold 'em
         if interaction.channel.id in active_texasholdem_games:
@@ -3064,25 +3168,29 @@ async def game_command(interaction: discord.Interaction, game_type: str):
                 "A Texas Hold 'em game is already active in this channel! Please finish it or wait.",
                 ephemeral=True
             )
+            print("DEBUG: Texas Hold 'em game already active.")
             return
         
         await interaction.followup.send("Setting up Texas Hold 'em game...", ephemeral=True)
+        print("DEBUG: Setting up Texas Hold 'em game.")
         
         holdem_game = TexasHoldEmGame(interaction.channel.id, interaction.user)
         
         # Call the new start_game method for Texas Hold 'em, passing the interaction
         await holdem_game.start_game(interaction)
+        print(f"DEBUG: Texas Hold 'em game started in channel {interaction.channel.id}.")
 
     else:
         await interaction.followup.send(
             f"Game type '{game_type}' is not yet implemented. Stay tuned!",
             ephemeral=True
         )
+        print(f"DEBUG: Game type '{game_type}' not implemented.")
 
 # Load environment variables for the token
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 
 if BOT_TOKEN is None:
-    print("Error: BOT_TOKEN eenvironment variable not set.")
+    print("Error: BOT_TOKEN environment variable not set.")
 else:
     bot.run(BOT_TOKEN)
