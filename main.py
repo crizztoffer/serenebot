@@ -515,11 +515,15 @@ class CategoryValueSelect(discord.ui.Select):
                 # Determine the content for the new board message based on the game phase
                 board_message_content = ""
                 if game.game_phase == "NORMAL_JEOPARDY":
-                    board_message_content = f"**{game.player.display_name}**'s Score: **{'-' if game.score < 0 else ''}${abs(jeopardy_game.score)}**\n\n"
+                    board_message_content = (
+                        f"**{jeopardy_game.player.display_name}**'s Score: **{'-' if jeopardy_game.score < 0 else ''}${abs(jeopardy_game.score)}**\n\n"
                         "Select a category and value from the dropdowns below!"
+                    )
                 elif game.game_phase == "DOUBLE_JEOPARDY":
-                    board_message_content = f"**{game.player.display_name}**'s Score: **{'-' if game.score < 0 else ''}${abs(jeopardy_game.score)}**\n\n"
+                    board_message_content = (
+                        f"**{jeopardy_game.player.display_name}**'s Score: **{'-' if jeopardy_game.score < 0 else ''}${abs(jeopardy_game.score)}**\n\n"
                         "**Double Jeopardy!** Select a category and value from the dropdowns below!"
+                    )
                 
                 if board_message_content: # Only send if there's content (i.e., not Final Jeopardy yet)
                     game.board_message = await interaction.channel.send(
@@ -829,7 +833,7 @@ class TicTacToeView(discord.ui.View):
             for c in range(3):
                 mark = self.board[r][c]
                 if mark == "X":
-                    board_str += "🇽 " # Regional indicator x
+                    board_str += "� " # Regional indicator x
                 elif mark == "O":
                     board_str += "🅾️ " # Regional indicator o
                 else:
@@ -2514,7 +2518,7 @@ class TexasHoldEmGame:
         card_overlap_percent = 0.33
         vertical_padding = 40 # Increased padding
         text_padding_x = 20 # Increased padding
-        text_padding_y = 20 # Increased padding to move text higher from cards
+        text_padding_y = 30 # Further increased padding to move text higher from cards
 
         # Get individual card images
         # Bot's hand
@@ -2616,6 +2620,8 @@ class TexasHoldEmGame:
             dealer_text_width,
             player_text_width
         )
+        # Increase overall image width to accommodate text
+        combined_image_width = max_content_width + text_padding_x * 4 # Increased multiplier for wider image
         
         # Calculate total height
         total_height = (
@@ -2629,8 +2635,7 @@ class TexasHoldEmGame:
         )
 
         # Create the final combined image with a transparent background
-        # Add extra padding to the overall width to ensure text fits
-        combined_image = Image.new('RGBA', (max_content_width + text_padding_x * 2, total_height), (0, 0, 0, 0)) # Transparent background
+        combined_image = Image.new('RGBA', (combined_image_width, total_height), (0, 0, 0, 0)) # Transparent background
 
         draw = ImageDraw.Draw(combined_image)
 
@@ -2784,8 +2789,10 @@ async def game_command(interaction: discord.Interaction, game_type: str):
             jeopardy_view.add_board_components()
             
             game_message = await interaction.channel.send(
-                content=f"**{jeopardy_game.player.display_name}**'s Score: **{'-' if jeopardy_game.score < 0 else ''}${abs(jeopardy_game.score)}**\n\n"
-                        "Select a category and value from the dropdowns below!",
+                content=(
+                    f"**{jeopardy_game.player.display_name}**'s Score: **{'-' if jeopardy_game.score < 0 else ''}${abs(jeopardy_game.score)}**\n\n"
+                    "Select a category and value from the dropdowns below!"
+                ),
                 view=jeopardy_view
             )
             jeopardy_game.board_message = game_message
