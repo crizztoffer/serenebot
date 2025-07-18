@@ -2377,8 +2377,8 @@ class TexasHoldEmGame:
             PIL.Image.Image: A Pillow Image object containing the combined game state.
         """
         # Define image scaling and padding
-        card_scale_factor = 0.4
-        card_overlap_percent = 0.4
+        card_scale_factor = 0.75
+        card_overlap_percent = 0.33
         vertical_padding = 20 # Padding between sections
         text_padding_x = 10 # Horizontal padding for text
         text_padding_y = 5 # Vertical padding for text
@@ -2402,7 +2402,7 @@ class TexasHoldEmGame:
         # Attempt to load a default font. If not available, use ImageFont.load_default()
         try:
             # Try a common sans-serif font name. This might not work on all systems.
-            font_path = "arial.ttf" # Example, might need full path or a different font
+            font_path = "https://serenekeks.com/OpenSans-Regular.ttf" # Example, might need full path or a different font
             # Check if font file exists, otherwise fallback
             if os.path.exists(font_path):
                 font_large = ImageFont.truetype(font_path, 24)
