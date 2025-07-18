@@ -935,7 +935,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** �",
+                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -2377,8 +2377,8 @@ class TexasHoldEmGame:
             PIL.Image.Image: A Pillow Image object containing the combined game state.
         """
         # Define image scaling and padding
-        card_scale_factor = 0.75
-        card_overlap_percent = 0.33
+        card_scale_factor = 0.75 # Changed from 0.4 to 0.75
+        card_overlap_percent = 0.33 # Changed from 0.4 to 0.33
         vertical_padding = 20 # Padding between sections
         text_padding_x = 10 # Horizontal padding for text
         text_padding_y = 5 # Vertical padding for text
@@ -2402,12 +2402,12 @@ class TexasHoldEmGame:
         # Attempt to load a default font. If not available, use ImageFont.load_default()
         try:
             # Try a common sans-serif font name. This might not work on all systems.
-            font_path = "https://serenekeks.com/OpenSans-Regular.ttf" # Example, might need full path or a different font
+            font_path = "arial.ttf" # Example, might need full path or a different font
             # Check if font file exists, otherwise fallback
             if os.path.exists(font_path):
-                font_large = ImageFont.truetype(font_path, 24)
-                font_medium = ImageFont.truetype(font_path, 18)
-                font_small = ImageFont.truetype(font_path, 14)
+                font_large = ImageFont.truetype(font_path, 30) # Increased from 24 to 30
+                font_medium = ImageFont.truetype(font_path, 24) # Increased from 18 to 24
+                font_small = ImageFont.truetype(font_path, 18) # Increased from 14 to 18
             else:
                 raise FileNotFoundError # Force fallback if file not found
         except (IOError, FileNotFoundError):
