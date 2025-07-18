@@ -2495,7 +2495,7 @@ class TexasHoldEmGame:
         self.community_cards = []
         self.game_phase = "pre_flop" # Reset phase
 
-    async def _create_combined_holdem_image(self, player_name: str, bot_name: str, player_kekchipz: int, reveal_opponent: bool = False) -> Image.Image:
+    async def _create_combined_holdem_image(self, player_name: str, bot_name: str, reveal_opponent: bool = False) -> Image.Image:
         """
         Creates a single combined image for Texas Hold 'em, showing dealer's cards,
         community cards, and player's cards, along with text labels.
@@ -2503,18 +2503,17 @@ class TexasHoldEmGame:
         Args:
             player_name (str): The display name of the human player.
             bot_name (str): The display name of the bot player.
-            player_kekchipz (int): The player's current kekchipz.
             reveal_opponent (bool): If True, reveals the bot's hole cards.
 
         Returns:
             PIL.Image.Image: A Pillow Image object containing the combined game state.
         """
         # Define image scaling and padding
-        card_scale_factor = 0.75 # Changed from 0.4 to 0.75
-        card_overlap_percent = 0.33 # Changed from 0.4 to 0.33
-        vertical_padding = 20 # Padding between sections
-        text_padding_x = 10 # Horizontal padding for text
-        text_padding_y = 5 # Vertical padding for text
+        card_scale_factor = 0.75
+        card_overlap_percent = 0.33
+        vertical_padding = 20
+        text_padding_x = 10
+        text_padding_y = 5
 
         # Get individual card images
         # Bot's hand
@@ -2530,36 +2529,29 @@ class TexasHoldEmGame:
         player_hand_img = await create_card_combo_image(','.join(player_card_codes), scale_factor=card_scale_factor, overlap_percent=card_overlap_percent)
 
         # Determine overall image dimensions
-        # Max width will be determined by the widest element, likely community cards if many
         max_content_width = max(bot_hand_img.width, community_img.width, player_hand_img.width)
         
         # Attempt to load a default font. If not available, use ImageFont.load_default()
         try:
-            # Try a common sans-serif font name. This might not work on all systems.
-            font_path = "arial.ttf" # Example, might need full path or a different font
-            # Check if font file exists, otherwise fallback
+            font_path = "arial.ttf"
             if os.path.exists(font_path):
-                font_large = ImageFont.truetype(font_path, 36) # Increased from 30 to 36
-                font_medium = ImageFont.truetype(font_path, 28) # Increased from 24 to 28
-                font_small = ImageFont.truetype(font_path, 22) # Increased from 18 to 22
+                font_large = ImageFont.truetype(font_path, 36)
+                font_medium = ImageFont.truetype(font_path, 28)
+                font_small = ImageFont.truetype(font_path, 22)
             else:
-                raise FileNotFoundError # Force fallback if file not found
+                raise FileNotFoundError
         except (IOError, FileNotFoundError):
-            # Fallback to default Pillow font
             font_large = ImageFont.load_default()
             font_medium = ImageFont.load_default()
             font_small = ImageFont.load_default()
             print("WARNING: Could not load Arial font. Using default Pillow font.")
 
         # Calculate text heights for layout
-        # Use a dummy image and draw object to measure text
         dummy_img = Image.new('RGBA', (1, 1))
         dummy_draw = ImageDraw.Draw(dummy_img)
 
         dealer_text = f"{bot_name}'s Hand"
-        community_text = "Community Cards" if community_card_codes else "Community Cards: (None yet)"
         player_text = f"{player_name}'s Hand"
-        kekchipz_text = f"Kekchipz: ${player_kekchipz}"
         
         # Determine showdown result if applicable
         showdown_result_text = ""
@@ -2593,17 +2585,14 @@ class TexasHoldEmGame:
             showdown_text_height = dummy_draw.textbbox((0,0), showdown_result_text, font=font_large)[3] - dummy_draw.textbbox((0,0), showdown_result_text, font=font_large)[1]
 
         dealer_text_height = dummy_draw.textbbox((0,0), dealer_text, font=font_medium)[3] - dummy_draw.textbbox((0,0), dealer_text, font=font_medium)[1]
-        community_text_height = dummy_draw.textbbox((0,0), community_text, font=font_medium)[3] - dummy_draw.textbbox((0,0), community_text, font=font_medium)[1]
         player_text_height = dummy_draw.textbbox((0,0), player_text, font=font_medium)[3] - dummy_draw.textbbox((0,0), player_text, font=font_medium)[1]
-        kekchipz_text_height = dummy_draw.textbbox((0,0), kekchipz_text, font=font_small)[3] - dummy_draw.textbbox((0,0), kekchipz_text, font=font_small)[1]
-
+        
         # Calculate total height
         total_height = (
             showdown_text_height + vertical_padding + # Added showdown text height
             dealer_text_height + bot_hand_img.height + vertical_padding +
-            community_text_height + community_img.height + vertical_padding +
-            player_text_height + player_hand_img.height + vertical_padding +
-            kekchipz_text_height + text_padding_y * 2 # For kekchipz text
+            community_img.height + vertical_padding + # Removed community text height
+            player_text_height + player_hand_img.height + vertical_padding
         )
 
         # Create the final combined image with a transparent background
@@ -2622,34 +2611,23 @@ class TexasHoldEmGame:
 
 
         # Draw Dealer's Hand
-        # Calculate x_offset to center dealer's hand relative to max_content_width
         dealer_x_offset = text_padding_x + (max_content_width - bot_hand_img.width) // 2
         draw.text((dealer_x_offset, current_y_offset), dealer_text, font=font_medium, fill=(255, 255, 255)) # White text
         current_y_offset += dealer_text_height + text_padding_y
         combined_image.paste(bot_hand_img, (dealer_x_offset, current_y_offset), bot_hand_img)
         current_y_offset += bot_hand_img.height + vertical_padding
 
-        # Draw Community Cards
-        # Community cards are already centered by max_content_width calculation
+        # Draw Community Cards (no text label)
         community_x_offset = text_padding_x + (max_content_width - community_img.width) // 2
-        draw.text((community_x_offset, current_y_offset), community_text, font=font_medium, fill=(255, 255, 255))
-        current_y_offset += community_text_height + text_padding_y
         combined_image.paste(community_img, (community_x_offset, current_y_offset), community_img)
         current_y_offset += community_img.height + vertical_padding
 
         # Draw Player's Hand
-        # Calculate x_offset to center player's hand relative to max_content_width
         player_x_offset = text_padding_x + (max_content_width - player_hand_img.width) // 2
         draw.text((player_x_offset, current_y_offset), player_text, font=font_medium, fill=(255, 255, 255))
         current_y_offset += player_text_height + text_padding_y
         combined_image.paste(player_hand_img, (player_x_offset, current_y_offset), player_hand_img)
         current_y_offset += player_hand_img.height + vertical_padding
-
-        # Draw Kekchipz
-        # Center kekchipz text as well
-        kekchipz_text_width = dummy_draw.textbbox((0,0), kekchipz_text, font=font_small)[2] - dummy_draw.textbbox((0,0), kekchipz_text, font=font_small)[0]
-        kekchipz_x_offset = text_padding_x + (max_content_width - kekchipz_text_width) // 2
-        draw.text((kekchipz_x_offset, current_y_offset), kekchipz_text, font=font_small, fill=(255, 255, 0)) # Yellow text for kekchipz
 
         return combined_image
 
@@ -2662,7 +2640,6 @@ class TexasHoldEmGame:
         combined_image_pil = await self._create_combined_holdem_image(
             self.player.display_name,
             self.bot_player.display_name,
-            player_kekchipz,
             reveal_opponent=reveal_opponent
         )
 
@@ -2671,19 +2648,22 @@ class TexasHoldEmGame:
         combined_image_bytes.seek(0)
         combined_file = discord.File(combined_image_bytes, filename="texas_holdem_game.png")
 
+        # Message content now includes Kekchipz balance
+        message_content = f"**{self.player.display_name}'s Kekchipz:** ${player_kekchipz}"
+
         # Send or edit the single game message
         if self.game_message:
             try:
                 # Use 'attachments' keyword argument instead of 'files'
-                await self.game_message.edit(content="", view=view, attachments=[combined_file])
+                await self.game_message.edit(content=message_content, view=view, attachments=[combined_file])
             except discord.errors.NotFound:
                 print("WARNING: Game message not found during edit. Attempting to re-send.")
-                self.game_message = await interaction.channel.send(content="", view=view, files=[combined_file])
+                self.game_message = await interaction.channel.send(content=message_content, view=view, files=[combined_file])
             except Exception as e:
                 print(f"WARNING: Error editing game message: {e}")
                 self.game_message = await interaction.channel.send(content="An error occurred updating the game display.", view=view, files=[combined_file])
         else:
-            self.game_message = await interaction.channel.send(content="", view=view, files=[combined_file])
+            self.game_message = await interaction.channel.send(content=message_content, view=view, files=[combined_file])
 
 
     async def start_game(self, interaction: discord.Interaction):
