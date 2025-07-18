@@ -949,7 +949,7 @@ class TicTacToeView(discord.ui.View):
             elif self._check_draw():
                 await update_user_kekchipz(interaction.guild.id, interaction.user.id, 25) # Human player gets kekchipz for a draw
                 await interaction.edit_original_response(
-                    content="It's a **draw!** �",
+                    content="It's a **draw!** 🤝",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -2568,7 +2568,7 @@ class TexasHoldEmGame:
         suits = ['S', 'D', 'C', 'H'] # Spades, Diamonds, Clubs, Hearts
         ranks = {
             'A': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9,
-            '0': 10, 'J': 10, 'Q': 10, 'K': 10 # '0' for Ten (as per deckofcardsapi.com)
+            '0': 10, 'J': 10, 'Q': 12, 'K': 13, 'A': 14 # '0' for Ten (as per deckofcardsapi.com)
         }
         rank_titles = {
             'A': 'Ace', '2': 'Two', '3': 'Three', '4': 'Four', '5': 'Five',
@@ -2807,6 +2807,9 @@ class TexasHoldEmGame:
         draw.text((dealer_text_x_offset, current_y_offset), dealer_text, font=font_medium, fill=discord_purple) # Discord purple text
         current_y_offset += dealer_text_height + text_padding_y # Increased padding
 
+        # Calculate dealer_img_x_offset here, before it's used
+        dealer_img_x_offset = (combined_image.width - bot_hand_img.width) // 2
+
         # Draw Dealer's Raise amount if applicable
         if self.dealer_raise_amount > 0 and not reveal_opponent: # Only show if dealer raised and not yet showdown
             dealer_raise_text = f"Raise: ${self.dealer_raise_amount}"
@@ -2819,7 +2822,6 @@ class TexasHoldEmGame:
                       dealer_raise_text, font=font_small, fill=(255, 165, 0)) # Orange for raise amount
 
         # Paste Dealer's Hand image
-        dealer_img_x_offset = (combined_image.width - bot_hand_img.width) // 2
         combined_image.paste(bot_hand_img, (dealer_img_x_offset, current_y_offset), bot_hand_img)
         current_y_offset += bot_hand_img.height + vertical_padding
 
@@ -2832,6 +2834,9 @@ class TexasHoldEmGame:
         player_text_x_offset = (combined_image.width - player_text_width) // 2
         draw.text((player_text_x_offset, current_y_offset), player_text, font=font_medium, fill=discord_purple) # Discord purple text
         current_y_offset += player_text_height + text_padding_y # Increased padding
+
+        # Calculate player_img_x_offset here, before it's used
+        player_img_x_offset = (combined_image.width - player_hand_img.width) // 2
 
         # Draw Minimum and Gtotal text to the left of player's cards
         min_text = f"Minimum: ${self.minimum_bet}"
@@ -2854,7 +2859,6 @@ class TexasHoldEmGame:
 
 
         # Paste Player's Hand image
-        player_img_x_offset = (combined_image.width - player_hand_img.width) // 2
         combined_image.paste(player_hand_img, (player_img_x_offset, current_y_offset), player_hand_img)
         current_y_offset += player_hand_img.height + vertical_padding
 
