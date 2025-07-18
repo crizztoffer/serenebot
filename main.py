@@ -23,7 +23,7 @@ intents.presences = True
 intents.message_content = True
 
 # Initialize the bot
-bot = commands.Commands.Bot(command_prefix='!', intents=intents)
+bot = commands.Bot(command_prefix='!', intents=intents)
 
 # --- Game State Storage ---
 active_tictactoe_games = {}
@@ -744,7 +744,7 @@ class TicTacToeButton(discord.ui.Button):
                 await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
             await interaction.edit_original_response(
-                content=f"🎉 **{winner_player.display_name} wins!** �",
+                content=f"🎉 **{winner_player.display_name} wins!** 🎉",
                 embed=view._start_game_message(),
                 view=view._end_game()
             )
@@ -935,7 +935,7 @@ class TicTacToeView(discord.ui.View):
                     await update_user_kekchipz(interaction.guild.id, interaction.user.id, 10)
 
                 await interaction.edit_original_response(
-                    content=f"🎉 **{winner_player.display_name} wins!** 🎉",
+                    content=f"🎉 **{winner_player.display_name} wins!** �",
                     embed=self._start_game_message(),
                     view=self._end_game()
                 )
@@ -2275,7 +2275,7 @@ class TexasHoldEmGame:
     Represents a single Texas Hold 'em game instance.
     Manages game state, player hands, and community cards.
     """
-    def __init__(self, channel_id: int, player: discord.User, player_ephemeral_message: discord.Message):
+    def __init__(self, channel_id: int, player: discord.User):
         self.channel_id = channel_id
         self.player = player # Human player
         self.bot_player = bot.user # Serene bot as opponent
@@ -2287,7 +2287,7 @@ class TexasHoldEmGame:
         # Store references to the three messages
         self.dealer_message = None
         self.community_message = None
-        self.player_message = player_ephemeral_message # This is the key change
+        self.player_message = None
         
         self.game_phase = "pre_flop" # pre_flop, flop, turn, river, showdown
 
@@ -2408,8 +2408,7 @@ class TexasHoldEmGame:
         player_image_pil.save(player_image_bytes, format='PNG')
         player_image_bytes.seek(0)
         player_file = discord.File(player_image_bytes, filename="player_hole_cards.png")
-        # Changed "Your Hand" to use player's display name
-        player_content = f"**{self.player.display_name}'s Hand**"
+        player_content = f"**Your Hand**"
         player_payload = (player_content, player_file, False)
 
         return dealer_payload, community_payload, player_payload
@@ -2458,17 +2457,17 @@ class TexasHoldEmGame:
             else:
                 self.community_message = await interaction.channel.send(content=community_content, files=[community_file])
 
-        # Update player's ephemeral message
-        # The player_message is now the initial ephemeral followup message from game_command
-        try:
-            await self.player_message.edit(content=player_content, view=view, attachments=[player_file])
-        except discord.errors.NotFound:
-            print("WARNING: Player ephemeral message not found during edit. This should not happen if initial send was successful.")
-            # If the message was somehow deleted, we can try to send a new ephemeral followup,
-            # but this might lead to multiple ephemeral messages if the original wasn't truly gone.
-            # For now, we'll just log the warning.
-        except Exception as e:
-            print(f"WARNING: Error editing player ephemeral message: {e}")
+        # Update or send player's message (this one also carries the game view)
+        if self.player_message:
+            try:
+                await self.player_message.edit(content=player_content, view=view, attachments=[player_file])
+            except discord.errors.NotFound:
+                print("WARNING: Player message not found during edit. Attempting to re-send.")
+                self.player_message = await interaction.channel.send(content=player_content, view=view, files=[player_file])
+            except Exception as e:
+                print(f"WARNING: Error editing player message: {e}")
+        else:
+            self.player_message = await interaction.channel.send(content=player_content, view=view, files=[player_file])
 
 
     async def start_game(self, interaction: discord.Interaction):
@@ -2502,9 +2501,7 @@ async def game_command(interaction: discord.Interaction, game_type: str):
     Handles the /serene game slash command.
     Starts the selected game directly.
     """
-    # Defer the interaction response ephemerally. This initial response will be used
-    # to display the player's private hand in Texas Hold 'em.
-    await interaction.response.defer(ephemeral=True) 
+    await interaction.response.defer(ephemeral=True)
 
     if game_type == "tic_tac_toe":
         if interaction.channel.id in active_tictactoe_games:
@@ -2517,16 +2514,13 @@ async def game_command(interaction: discord.Interaction, game_type: str):
         player1 = interaction.user
         player2 = bot.user
 
-        # For Tic-Tac-Toe, the game message is public, so we send a public follow-up.
-        # The initial deferred ephemeral message from game_command can be used for a quick confirmation.
         await interaction.followup.send(
             f"Starting Tic-Tac-Toe for {player1.display_name} vs. {player2.display_name}...",
-            ephemeral=True # This initial message can be ephemeral
+            ephemeral=True
         )
 
         game_view = TicTacToeView(player_x=player1, player_o=player2)
         
-        # Send the actual game board publicly
         game_message = await interaction.channel.send(
             content=f"It's **{player1.display_name}**'s turn (X)",
             embed=game_view._start_game_message(),
@@ -2593,11 +2587,9 @@ async def game_command(interaction: discord.Interaction, game_type: str):
             )
             return
         
-        # The initial deferred ephemeral message is already sent by interaction.response.defer(ephemeral=True)
-        # We can directly use interaction.original_response() to get this message object.
-        initial_player_ephemeral_message = await interaction.original_response()
+        await interaction.followup.send("Setting up Texas Hold 'em game...", ephemeral=True)
         
-        holdem_game = TexasHoldEmGame(interaction.channel.id, interaction.user, initial_player_ephemeral_message)
+        holdem_game = TexasHoldEmGame(interaction.channel.id, interaction.user)
         
         # Call the new start_game method for Texas Hold 'em, passing the interaction
         await holdem_game.start_game(interaction)
